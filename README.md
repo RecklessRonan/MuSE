@@ -18,7 +18,7 @@ This implemetation is based on Python=3.7. To run the code, you need the followi
 - torch==1.11.0
 - transformers==4.18.0
 - torchvision==0.12.0
-- spacy==3.3.0
+- spacy==2.3.7
 - scikit-learn==1.0.2
 - tensorboard==1.13.1
 
