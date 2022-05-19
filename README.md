@@ -103,8 +103,6 @@ def _cr_block(self, x1, x2, attn_weight1, attn_weight2):
         cls_weight2 = attn_weight2[:, 0, :]
         x1_mean = torch.mean(x1, dim=-2)
         x2_mean = torch.mean(x2, dim=-2)
-
-
         for i in range(cls_weight1.shape[0]):
             if self.use_quantile:
                 theta1 = np.quantile(cls_weight1[i][1:].detach().cpu().numpy(), self.theta)
