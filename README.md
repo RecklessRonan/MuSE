@@ -91,6 +91,8 @@ CUDA_VISIBLE_DEVICES=0 python -u main.py \
 
 You can change the 'TASK_NAME' to run other datasets. Also, you can try any parameters in the python scripts.
 
+Notice: you need to change all 'your url' in 'main.py' to the real url of datasets and models.
+
 
 ## CrossTransformer
 
