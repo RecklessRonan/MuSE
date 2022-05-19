@@ -2,7 +2,7 @@
 
 This is the implementation of paper ***Exchanging-based Multimodal Fusion with Transformer***
 
-We provide our data in [Google Drive]().
+We provide our data in anonymous [Google Drive]().
 
 ## Setup
 
