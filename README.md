@@ -101,10 +101,6 @@ Here is the core of CrossTransformer. For more details, please refer to the 'mod
 def _cr_block(self, x1, x2, attn_weight1, attn_weight2):
         cls_weight1 = attn_weight1[:, 0, :]
         cls_weight2 = attn_weight2[:, 0, :]
-        # print('cls_weight1', cls_weight1.shape)
-        # print(cls_weight1)
-        # print('cls_weight2', cls_weight2.shape)
-        # print(cls_weight2)
         x1_mean = torch.mean(x1, dim=-2)
         x2_mean = torch.mean(x2, dim=-2)
 
