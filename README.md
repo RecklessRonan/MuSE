@@ -30,6 +30,8 @@ This implemetation is based on PyTorch. To run the code, you need the following 
 
 Parts of this code are based on the following repositories:
 
-- [NIC]()
+- [UMT](https://github.com/jefferyYu/UMT)
 
-- [PixelCNN++]()
+- [NIC](https://github.com/sgrvinod/a-PyTorch-Tutorial-to-Image-Captioning)
+
+- [PixelCNN++](https://github.com/pclucas14/pixel-cnn-pp)
