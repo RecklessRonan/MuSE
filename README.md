@@ -20,7 +20,7 @@ This implemetation is based on Python=3.7. To run the code, you need the followi
 - torchvision==0.12.0
 - spacy==2.3.7
 - scikit-learn==1.0.2
-- tensorboard==1.13.1
+- tensorboard==2.8.0
 
 Or you can simply run:
 
