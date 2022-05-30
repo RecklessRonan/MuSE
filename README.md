@@ -1,7 +1,5 @@
 # MuSE
 
-This is the implementation of paper ***Exchanging-based Multimodal Fusion with Transformer***
-
 We provide our collected dataset (MT-Product) in anonymous [Google Drive](https://drive.google.com/drive/u/1/folders/1emWPyba8kF29EgS67ESO81kxIOCQN6Dv). 
 
 And the other public datasets can be downloaded from: 
