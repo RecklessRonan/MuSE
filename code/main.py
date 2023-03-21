@@ -531,18 +531,18 @@ def main():
 
     if args.task == 'twitter15':
         if args.data_dir is None:
-            args.data_dir = '/home/ubuntu/multimodal-fusion/baselines/UMT/data/twitter2015'
+            args.data_dir = '../data/twitter2015'
         if args.image_dir is None:
-            args.image_dir = '/home/ubuntu/multimodal-fusion/datasets/IJCAI2019_data/twitter2015_images'
+            args.image_dir = '../data/twitter2015_images'
         # text_checkpoint = 'your url'
         # image_checkpoint = 'your url'
     elif args.task == 'twitter17':
         if args.data_dir is None:
-            args.data_dir = 'your url'
+            args.data_dir = '../data/twitter2017'
         if args.image_dir is None:
-            args.image_dir = 'your url'
-        text_checkpoint = 'your url'
-        image_checkpoint = 'your url'
+            args.image_dir = '../data/twitter2017_images'
+        # text_checkpoint = 'your url'
+        # image_checkpoint = 'your url'
     elif args.task == 'mt-product':
         if args.data_dir is None:
             args.data_dir = 'your url'
