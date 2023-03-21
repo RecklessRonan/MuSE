@@ -15,43 +15,47 @@ from typing import List, Optional
 
 class CrossReplaceTransformerLayer(nn.Module):
     def __init__(self, d_model, nhead, theta, skip_connection=False, use_quantile=False, dim_feedforward=2048, dropout=0.1, activation=F.relu, layer_norm_eps=1e-5,
-                     batch_first=True, norm_first=False, device=None, dtype=None):
+                 batch_first=True, norm_first=False, device=None, dtype=None):
         factory_kwargs = {'device': device, 'dtype': dtype}
         super(CrossReplaceTransformerLayer, self).__init__()
-        self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout, batch_first=batch_first, **factory_kwargs)
+        self.multihead_attn = nn.MultiheadAttention(
+            d_model, nhead, dropout=dropout, batch_first=batch_first, **factory_kwargs)
 
-        ## feedforward model
+        # feedforward model
         self.linear1 = nn.Linear(d_model, dim_feedforward, **factory_kwargs)
         self.dropout = nn.Dropout(dropout)
         self.linear2 = nn.Linear(dim_feedforward, d_model, **factory_kwargs)
 
         self.norm_first = norm_first
-        self.norm1 = nn.LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
-        self.norm2 = nn.LayerNorm(d_model, eps=layer_norm_eps, **factory_kwargs)
-        
+        self.norm1 = nn.LayerNorm(
+            d_model, eps=layer_norm_eps, **factory_kwargs)
+        self.norm2 = nn.LayerNorm(
+            d_model, eps=layer_norm_eps, **factory_kwargs)
+
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
 
         self.activatiion = activation
 
-        self.theta = theta  # select the attention value 
+        self.theta = theta  # select the attention value
         self.skip_connection = skip_connection
         self.use_quantile = use_quantile
 
     # self-attention block
     def _sa_block(self, x, attn_mask, key_padding_mask):
-        x, attn_weight = self.multihead_attn(x, x, x, attn_mask=attn_mask, key_padding_mask=key_padding_mask, need_weights=True)
+        x, attn_weight = self.multihead_attn(
+            x, x, x, attn_mask=attn_mask, key_padding_mask=key_padding_mask, need_weights=True)
         return self.dropout1(x), attn_weight
-    
 
     # feedforward block
+
     def _ff_block(self, x):
         x = self.linear2(self.dropout2(self.activatiion(self.linear1(x))))
         return self.dropout2(x)
 
-
     # cross-replace block
     # notice: batch_first must be true
+
     def _cr_block(self, x1, x2, attn_weight1, attn_weight2):
         cls_weight1 = attn_weight1[:, 0, :]
         cls_weight2 = attn_weight2[:, 0, :]
@@ -62,30 +66,35 @@ class CrossReplaceTransformerLayer(nn.Module):
         x1_mean = torch.mean(x1, dim=-2)
         x2_mean = torch.mean(x2, dim=-2)
 
-
         for i in range(cls_weight1.shape[0]):
             if self.use_quantile:
-                theta1 = np.quantile(cls_weight1[i][1:].detach().cpu().numpy(), self.theta)
-                theta2 = np.quantile(cls_weight2[i][1:].detach().cpu().numpy(), self.theta)
+                theta1 = np.quantile(
+                    cls_weight1[i][1:].detach().cpu().numpy(), self.theta)
+                theta2 = np.quantile(
+                    cls_weight2[i][1:].detach().cpu().numpy(), self.theta)
             else:
                 theta1 = self.theta
                 theta2 = self.theta
-            
-            for j in range(1, cls_weight1.shape[1]):  # except the first token, namely [cls]
+
+            # except the first token, namely [cls]
+            for j in range(1, cls_weight1.shape[1]):
                 if cls_weight1[i][j] < theta1:
-                    x1[i][j] = x2_mean[i] + x1[i][j] if self.skip_connection else x2_mean[i]
+                    x1[i][j] = x2_mean[i] + \
+                        x1[i][j] if self.skip_connection else x2_mean[i]
                 if cls_weight2[i][j] < theta2:
-                    x2[i][j] = x1_mean[i] + x2[i][j] if self.skip_connection else x1_mean[i]
+                    x2[i][j] = x1_mean[i] + \
+                        x2[i][j] if self.skip_connection else x1_mean[i]
         return x1, x2
-    
-    
+
     def forward(self, src1, src2, replace=False, src1_mask=None, src1_key_padding_mask=None, src2_mask=None, src2_key_padding_mask=None):
         x1 = src1
         x2 = src2
 
         if self.norm_first:
-            res1, attn_weight1 = self._sa_block(self.norm1(x1), src1_mask, src1_key_padding_mask)          
-            res2, attn_weight2 = self._sa_block(self.norm1(x2), src2_mask, src2_key_padding_mask)
+            res1, attn_weight1 = self._sa_block(
+                self.norm1(x1), src1_mask, src1_key_padding_mask)
+            res2, attn_weight2 = self._sa_block(
+                self.norm1(x2), src2_mask, src2_key_padding_mask)
             x1 = x1 + res1
             x2 = x2 + res2
 
@@ -95,8 +104,10 @@ class CrossReplaceTransformerLayer(nn.Module):
             x1 = x1 + self._ff_block(self.norm2(x1))
             x2 = x2 + self._ff_block(self.norm2(x2))
         else:
-            res1, attn_weight1 = self._sa_block(x1, src1_mask, src1_key_padding_mask)          
-            res2, attn_weight2 = self._sa_block(x2, src2_mask, src2_key_padding_mask)
+            res1, attn_weight1 = self._sa_block(
+                x1, src1_mask, src1_key_padding_mask)
+            res2, attn_weight2 = self._sa_block(
+                x2, src2_mask, src2_key_padding_mask)
 
             x1 = self.norm1(x1 + res1)
             x2 = self.norm1(x2 + res2)
@@ -106,7 +117,7 @@ class CrossReplaceTransformerLayer(nn.Module):
 
             x1 = self.norm2(x1 + self._ff_block(x1))
             x2 = self.norm2(x2 + self._ff_block(x2))
-        
+
         return x1, x2
 
 
@@ -122,7 +133,7 @@ class CrossReplaceTransformer(nn.Module):
         self.norm = norm
         self.replace_start = replace_start
         self.replace_end = replace_end
-    
+
     def forward(self, src1, src2, mask1=None, src1_key_padding_mask=None, mask2=None, src2_key_padding_mask=None):
         output1 = src1
         output2 = src2
@@ -131,13 +142,13 @@ class CrossReplaceTransformer(nn.Module):
         # print('output2', output2.shape)
         # print(output2)
 
-
         for i, mod in enumerate(self.layers):
             if i >= self.replace_start and i <= self.replace_end:
                 replace = True
             else:
                 replace = False
-            output1, output2 = mod(output1, output2, replace=replace, src1_mask=mask1, src1_key_padding_mask=src1_key_padding_mask, src2_mask=mask2, src2_key_padding_mask=src2_key_padding_mask)
+            output1, output2 = mod(output1, output2, replace=replace, src1_mask=mask1,
+                                   src1_key_padding_mask=src1_key_padding_mask, src2_mask=mask2, src2_key_padding_mask=src2_key_padding_mask)
             # print('output1', output1.shape)
             # print(output1)
             # print('output2', output2.shape)
@@ -146,7 +157,7 @@ class CrossReplaceTransformer(nn.Module):
         if self.norm is not None:
             output1 = self.norm(output1)
             output2 = self.norm(output2)
-        
+
         return output1, output2
 
 
@@ -163,10 +174,10 @@ class ImageEncoder(nn.Module):
         self.resnet = nn.Sequential(*modules)
 
         # Resize image to fixed size to allow input images of variable size
-        self.adaptive_pool = nn.AdaptiveAvgPool2d((encoded_image_size, encoded_image_size))
+        self.adaptive_pool = nn.AdaptiveAvgPool2d(
+            (encoded_image_size, encoded_image_size))
         self.fine_tune()
         self.fc = nn.Linear(2048, 768)
-        
 
     def forward(self, images):
         """
@@ -174,9 +185,12 @@ class ImageEncoder(nn.Module):
         :param images: images, a tensor of dimensions (batch_size, 3, image_size, image_size)
         :return: encoded images
         """
-        out = self.resnet(images)  # (batch_size, 2048, image_size/32, image_size/32)
-        out = self.adaptive_pool(out)  # (batch_size, 2048, encoded_image_size, encoded_image_size)
-        out = out.permute(0, 2, 3, 1)  # (batch_size, encoded_image_size, encoded_image_size, 2048)
+        out = self.resnet(
+            images)  # (batch_size, 2048, image_size/32, image_size/32)
+        # (batch_size, 2048, encoded_image_size, encoded_image_size)
+        out = self.adaptive_pool(out)
+        # (batch_size, encoded_image_size, encoded_image_size, 2048)
+        out = out.permute(0, 2, 3, 1)
         out = self.fc(out)
         return out
 
@@ -205,9 +219,12 @@ class Attention(nn.Module):
         :param attention_dim: size of the attention network
         """
         super(Attention, self).__init__()
-        self.encoder_att = nn.Linear(encoder_dim, attention_dim)  # linear layer to transform encoded image
-        self.decoder_att = nn.Linear(decoder_dim, attention_dim)  # linear layer to transform decoder's output
-        self.full_att = nn.Linear(attention_dim, 1)  # linear layer to calculate values to be softmax-ed
+        # linear layer to transform encoded image
+        self.encoder_att = nn.Linear(encoder_dim, attention_dim)
+        # linear layer to transform decoder's output
+        self.decoder_att = nn.Linear(decoder_dim, attention_dim)
+        # linear layer to calculate values to be softmax-ed
+        self.full_att = nn.Linear(attention_dim, 1)
         self.relu = nn.ReLU()
         self.softmax = nn.Softmax(dim=1)  # softmax layer to calculate weights
 
@@ -218,11 +235,14 @@ class Attention(nn.Module):
         :param decoder_hidden: previous decoder output, a tensor of dimension (batch_size, decoder_dim)
         :return: attention weighted encoding, weights
         """
-        att1 = self.encoder_att(encoder_out)  # (batch_size, num_pixels, attention_dim)
+        att1 = self.encoder_att(
+            encoder_out)  # (batch_size, num_pixels, attention_dim)
         att2 = self.decoder_att(decoder_hidden)  # (batch_size, attention_dim)
-        att = self.full_att(self.relu(att1 + att2.unsqueeze(1))).squeeze(2)  # (batch_size, num_pixels)
+        # (batch_size, num_pixels)
+        att = self.full_att(self.relu(att1 + att2.unsqueeze(1))).squeeze(2)
         alpha = self.softmax(att)  # (batch_size, num_pixels)
-        attention_weighted_encoding = (encoder_out * alpha.unsqueeze(2)).sum(dim=1)  # (batch_size, encoder_dim)
+        attention_weighted_encoding = (
+            encoder_out * alpha.unsqueeze(2)).sum(dim=1)  # (batch_size, encoder_dim)
 
         return attention_weighted_encoding, alpha
 
@@ -251,16 +271,22 @@ class TextDecoder(nn.Module):
         self.dropout = dropout
         self.device = device
 
-        self.attention = Attention(encoder_dim, decoder_dim, attention_dim)  # attention network
+        self.attention = Attention(
+            encoder_dim, decoder_dim, attention_dim)  # attention network
 
         self.embedding = nn.Embedding(vocab_size, embed_dim)  # embedding layer
         self.dropout = nn.Dropout(p=self.dropout)
-        self.decode_step = nn.LSTMCell(embed_dim + encoder_dim, decoder_dim, bias=True)  # decoding LSTMCell
-        self.init_h = nn.Linear(encoder_dim, decoder_dim)  # linear layer to find initial hidden state of LSTMCell
-        self.init_c = nn.Linear(encoder_dim, decoder_dim)  # linear layer to find initial cell state of LSTMCell
-        self.f_beta = nn.Linear(decoder_dim, encoder_dim)  # linear layer to create a sigmoid-activated gate
+        self.decode_step = nn.LSTMCell(
+            embed_dim + encoder_dim, decoder_dim, bias=True)  # decoding LSTMCell
+        # linear layer to find initial hidden state of LSTMCell
+        self.init_h = nn.Linear(encoder_dim, decoder_dim)
+        # linear layer to find initial cell state of LSTMCell
+        self.init_c = nn.Linear(encoder_dim, decoder_dim)
+        # linear layer to create a sigmoid-activated gate
+        self.f_beta = nn.Linear(decoder_dim, encoder_dim)
         self.sigmoid = nn.Sigmoid()
-        self.fc = nn.Linear(decoder_dim, vocab_size)  # linear layer to find scores over vocabulary
+        # linear layer to find scores over vocabulary
+        self.fc = nn.Linear(decoder_dim, vocab_size)
         self.init_weights()  # initialize some layers with the uniform distribution
 
     def init_weights(self):
@@ -311,16 +337,19 @@ class TextDecoder(nn.Module):
         vocab_size = self.vocab_size
 
         # Flatten image
-        encoder_out = encoder_out.view(batch_size, -1, encoder_dim)  # (batch_size, num_pixels, encoder_dim)
+        # (batch_size, num_pixels, encoder_dim)
+        encoder_out = encoder_out.view(batch_size, -1, encoder_dim)
         num_pixels = encoder_out.size(1)
 
         # Sort input data by decreasing lengths; why? apparent below
-        caption_lengths, sort_ind = caption_lengths.squeeze(1).sort(dim=0, descending=True)
+        caption_lengths, sort_ind = caption_lengths.squeeze(
+            1).sort(dim=0, descending=True)
         encoder_out = encoder_out[sort_ind]
         encoded_captions = encoded_captions[sort_ind]
 
         # Embedding
-        embeddings = self.embedding(encoded_captions)  # (batch_size, max_caption_length, embed_dim)
+        # (batch_size, max_caption_length, embed_dim)
+        embeddings = self.embedding(encoded_captions)
 
         # Initialize LSTM state
         h, c = self.init_hidden_state(encoder_out)  # (batch_size, decoder_dim)
@@ -330,8 +359,10 @@ class TextDecoder(nn.Module):
         decode_lengths = (caption_lengths - 1).tolist()
 
         # Create tensors to hold word predicion scores and alphas
-        predictions = torch.zeros(batch_size, max(decode_lengths), vocab_size).to(self.device)
-        alphas = torch.zeros(batch_size, max(decode_lengths), num_pixels).to(self.device)
+        predictions = torch.zeros(batch_size, max(
+            decode_lengths), vocab_size).to(self.device)
+        alphas = torch.zeros(batch_size, max(
+            decode_lengths), num_pixels).to(self.device)
 
         # At each time-step, decode by
         # attention-weighing the encoder's output based on the decoder's previous hidden state output
@@ -342,12 +373,14 @@ class TextDecoder(nn.Module):
             batch_size_t = sum([l > t for l in decode_lengths])
             attention_weighted_encoding, alpha = self.attention(encoder_out[:batch_size_t],
                                                                 h[:batch_size_t])
-            gate = self.sigmoid(self.f_beta(h[:batch_size_t]))  # gating scalar, (batch_size_t, encoder_dim)
+            # gating scalar, (batch_size_t, encoder_dim)
+            gate = self.sigmoid(self.f_beta(h[:batch_size_t]))
             attention_weighted_encoding = gate * attention_weighted_encoding
             # print('batch_size_t', batch_size_t)
             # print('t', t)
             h, c = self.decode_step(
-                torch.cat([embeddings[:batch_size_t, t, :], attention_weighted_encoding], dim=1),
+                torch.cat([embeddings[:batch_size_t, t, :],
+                          attention_weighted_encoding], dim=1),
                 (h[:batch_size_t], c[:batch_size_t]))  # (batch_size_t, decoder_dim)
             preds = self.fc(self.dropout(h))  # (batch_size_t, vocab_size)
             predictions[:batch_size_t, t, :] = preds
@@ -364,10 +397,14 @@ class TextEncoder(nn.Module):
 
     def forward(self, input_ids, attention_mask=None, token_type_ids=None):
         if not self.use_xlmr:
-            outputs = self.bert(input_ids = input_ids,attention_mask=attention_mask,token_type_ids=token_type_ids)
+            outputs = self.bert(
+                input_ids=input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
         else:
-            outputs = self.bert(input_ids = input_ids,attention_mask=attention_mask)
-        return outputs
+            outputs = self.bert(input_ids=input_ids,
+                                attention_mask=attention_mask)
+        # print('outputs type:', type(outputs))
+        # print('outputs:', outputs)
+        return outputs.last_hidden_state, outputs.pooler_output
 
 
 def concat_elu(x):
@@ -380,8 +417,8 @@ def concat_elu(x):
 def log_sum_exp(x):
     """ numerically stable log_sum_exp implementation that prevents overflow """
     # TF ordering
-    axis  = len(x.size()) - 1
-    m, _  = torch.max(x, dim=axis)
+    axis = len(x.size()) - 1
+    m, _ = torch.max(x, dim=axis)
     m2, _ = torch.max(x, dim=axis, keepdim=True)
     return m + torch.log(torch.sum(torch.exp(x - m2), dim=axis))
 
@@ -401,25 +438,27 @@ def discretized_mix_logistic_loss(x, l):
     l = l.permute(0, 2, 3, 1)
     xs = [int(y) for y in x.size()]
     ls = [int(y) for y in l.size()]
-   
+
     # here and below: unpacking the params of the mixture of logistics
-    nr_mix = int(ls[-1] / 10) 
+    nr_mix = int(ls[-1] / 10)
     logit_probs = l[:, :, :, :nr_mix]
-    l = l[:, :, :, nr_mix:].contiguous().view(xs + [nr_mix * 3]) # 3 for mean, scale, coef
+    l = l[:, :, :, nr_mix:].contiguous().view(
+        xs + [nr_mix * 3])  # 3 for mean, scale, coef
     means = l[:, :, :, :, :nr_mix]
     # log_scales = torch.max(l[:, :, :, :, nr_mix:2 * nr_mix], -7.)
     log_scales = torch.clamp(l[:, :, :, :, nr_mix:2 * nr_mix], min=-7.)
-   
+
     coeffs = F.tanh(l[:, :, :, :, 2 * nr_mix:3 * nr_mix])
     # here and below: getting the means and adjusting them based on preceding
     # sub-pixels
     x = x.contiguous()
-    x = x.unsqueeze(-1) + Variable(torch.zeros(xs + [nr_mix]).cuda(), requires_grad=False)
+    x = x.unsqueeze(-1) + Variable(torch.zeros(xs +
+                                               [nr_mix]).cuda(), requires_grad=False)
     m2 = (means[:, :, :, 1, :] + coeffs[:, :, :, 0, :]
-                * x[:, :, :, 0, :]).view(xs[0], xs[1], xs[2], 1, nr_mix)
+          * x[:, :, :, 0, :]).view(xs[0], xs[1], xs[2], 1, nr_mix)
 
     m3 = (means[:, :, :, 2, :] + coeffs[:, :, :, 1, :] * x[:, :, :, 0, :] +
-                coeffs[:, :, :, 2, :] * x[:, :, :, 1, :]).view(xs[0], xs[1], xs[2], 1, nr_mix)
+          coeffs[:, :, :, 2, :] * x[:, :, :, 1, :]).view(xs[0], xs[1], xs[2], 1, nr_mix)
 
     means = torch.cat((means[:, :, :, 0, :].unsqueeze(3), m2, m3), dim=3)
     centered_x = x - means
@@ -450,15 +489,17 @@ def discretized_mix_logistic_loss(x, l):
     # if the probability on a sub-pixel is below 1e-5, we use an approximation
     # based on the assumption that the log-density is constant in the bin of
     # the observed sub-pixel value
-    
+
     inner_inner_cond = (cdf_delta > 1e-5).float()
-    inner_inner_out  = inner_inner_cond * torch.log(torch.clamp(cdf_delta, min=1e-12)) + (1. - inner_inner_cond) * (log_pdf_mid - np.log(127.5))
-    inner_cond       = (x > 0.999).float()
-    inner_out        = inner_cond * log_one_minus_cdf_min + (1. - inner_cond) * inner_inner_out
-    cond             = (x < -0.999).float()
-    log_probs        = cond * log_cdf_plus + (1. - cond) * inner_out
-    log_probs        = torch.sum(log_probs, dim=3) + log_prob_from_logits(logit_probs)
-    
+    inner_inner_out = inner_inner_cond * torch.log(torch.clamp(
+        cdf_delta, min=1e-12)) + (1. - inner_inner_cond) * (log_pdf_mid - np.log(127.5))
+    inner_cond = (x > 0.999).float()
+    inner_out = inner_cond * log_one_minus_cdf_min + \
+        (1. - inner_cond) * inner_inner_out
+    cond = (x < -0.999).float()
+    log_probs = cond * log_cdf_plus + (1. - cond) * inner_out
+    log_probs = torch.sum(log_probs, dim=3) + log_prob_from_logits(logit_probs)
+
     return -torch.sum(log_sum_exp(log_probs))
 
 
@@ -473,13 +514,15 @@ def discretized_mix_logistic_loss_1d(x, l):
     # here and below: unpacking the params of the mixture of logistics
     nr_mix = int(ls[-1] / 3)
     logit_probs = l[:, :, :, :nr_mix]
-    l = l[:, :, :, nr_mix:].contiguous().view(xs + [nr_mix * 2]) # 2 for mean, scale
+    l = l[:, :, :, nr_mix:].contiguous().view(
+        xs + [nr_mix * 2])  # 2 for mean, scale
     means = l[:, :, :, :, :nr_mix]
     log_scales = torch.clamp(l[:, :, :, :, nr_mix:2 * nr_mix], min=-7.)
     # here and below: getting the means and adjusting them based on preceding
     # sub-pixels
     x = x.contiguous()
-    x = x.unsqueeze(-1) + Variable(torch.zeros(xs + [nr_mix]).cuda(), requires_grad=False)
+    x = x.unsqueeze(-1) + Variable(torch.zeros(xs +
+                                               [nr_mix]).cuda(), requires_grad=False)
 
     # means = torch.cat((means[:, :, :, 0, :].unsqueeze(3), m2, m3), dim=3)
     centered_x = x - means
@@ -497,22 +540,25 @@ def discretized_mix_logistic_loss_1d(x, l):
     # log probability in the center of the bin, to be used in extreme cases
     # (not actually used in our code)
     log_pdf_mid = mid_in - log_scales - 2. * F.softplus(mid_in)
-    
+
     inner_inner_cond = (cdf_delta > 1e-5).float()
-    inner_inner_out  = inner_inner_cond * torch.log(torch.clamp(cdf_delta, min=1e-12)) + (1. - inner_inner_cond) * (log_pdf_mid - np.log(127.5))
-    inner_cond       = (x > 0.999).float()
-    inner_out        = inner_cond * log_one_minus_cdf_min + (1. - inner_cond) * inner_inner_out
-    cond             = (x < -0.999).float()
-    log_probs        = cond * log_cdf_plus + (1. - cond) * inner_out
-    log_probs        = torch.sum(log_probs, dim=3) + log_prob_from_logits(logit_probs)
-    
+    inner_inner_out = inner_inner_cond * torch.log(torch.clamp(
+        cdf_delta, min=1e-12)) + (1. - inner_inner_cond) * (log_pdf_mid - np.log(127.5))
+    inner_cond = (x > 0.999).float()
+    inner_out = inner_cond * log_one_minus_cdf_min + \
+        (1. - inner_cond) * inner_inner_out
+    cond = (x < -0.999).float()
+    log_probs = cond * log_cdf_plus + (1. - cond) * inner_out
+    log_probs = torch.sum(log_probs, dim=3) + log_prob_from_logits(logit_probs)
+
     return -torch.sum(log_sum_exp(log_probs))
 
 
 def to_one_hot(tensor, n, fill_with=1.):
     # we perform one hot encore with respect to the last axis
     one_hot = torch.FloatTensor(tensor.size() + (n,)).zero_()
-    if tensor.is_cuda : one_hot = one_hot.cuda()
+    if tensor.is_cuda:
+        one_hot = one_hot.cuda()
     one_hot.scatter_(len(tensor.size()), tensor.unsqueeze(-1), fill_with)
     return Variable(one_hot)
 
@@ -521,27 +567,30 @@ def sample_from_discretized_mix_logistic_1d(l, nr_mix):
     # Pytorch ordering
     l = l.permute(0, 2, 3, 1)
     ls = [int(y) for y in l.size()]
-    xs = ls[:-1] + [1] #[3]
+    xs = ls[:-1] + [1]  # [3]
 
     # unpack parameters
     logit_probs = l[:, :, :, :nr_mix]
-    l = l[:, :, :, nr_mix:].contiguous().view(xs + [nr_mix * 2]) # for mean, scale
+    l = l[:, :, :, nr_mix:].contiguous().view(
+        xs + [nr_mix * 2])  # for mean, scale
 
     # sample mixture indicator from softmax
     temp = torch.FloatTensor(logit_probs.size())
-    if l.is_cuda : temp = temp.cuda()
+    if l.is_cuda:
+        temp = temp.cuda()
     temp.uniform_(1e-5, 1. - 1e-5)
     temp = logit_probs.data - torch.log(- torch.log(temp))
     _, argmax = temp.max(dim=3)
-   
+
     one_hot = to_one_hot(argmax, nr_mix)
     sel = one_hot.view(xs[:-1] + [1, nr_mix])
     # select logistic parameters
-    means = torch.sum(l[:, :, :, :, :nr_mix] * sel, dim=4) 
+    means = torch.sum(l[:, :, :, :, :nr_mix] * sel, dim=4)
     log_scales = torch.clamp(torch.sum(
         l[:, :, :, :, nr_mix:2 * nr_mix] * sel, dim=4), min=-7.)
     u = torch.FloatTensor(means.size())
-    if l.is_cuda : u = u.cuda()
+    if l.is_cuda:
+        u = u.cuda()
     u.uniform_(1e-5, 1. - 1e-5)
     u = Variable(u)
     x = means + torch.exp(log_scales) * (torch.log(u) - torch.log(1. - u))
@@ -561,15 +610,16 @@ def sample_from_discretized_mix_logistic(l, nr_mix):
     l = l[:, :, :, nr_mix:].contiguous().view(xs + [nr_mix * 3])
     # sample mixture indicator from softmax
     temp = torch.FloatTensor(logit_probs.size())
-    if l.is_cuda : temp = temp.cuda()
+    if l.is_cuda:
+        temp = temp.cuda()
     temp.uniform_(1e-5, 1. - 1e-5)
     temp = logit_probs.data - torch.log(- torch.log(temp))
     _, argmax = temp.max(dim=3)
-   
+
     one_hot = to_one_hot(argmax, nr_mix)
     sel = one_hot.view(xs[:-1] + [1, nr_mix])
     # select logistic parameters
-    means = torch.sum(l[:, :, :, :, :nr_mix] * sel, dim=4) 
+    means = torch.sum(l[:, :, :, :, :nr_mix] * sel, dim=4)
     log_scales = torch.clamp(torch.sum(
         l[:, :, :, :, nr_mix:2 * nr_mix] * sel, dim=4), min=-7.)
     coeffs = torch.sum(F.tanh(
@@ -577,28 +627,31 @@ def sample_from_discretized_mix_logistic(l, nr_mix):
     # sample from logistic & clip to interval
     # we don't actually round to the nearest 8bit value when sampling
     u = torch.FloatTensor(means.size())
-    if l.is_cuda : u = u.cuda()
+    if l.is_cuda:
+        u = u.cuda()
     u.uniform_(1e-5, 1. - 1e-5)
     u = Variable(u)
     x = means + torch.exp(log_scales) * (torch.log(u) - torch.log(1. - u))
     x0 = torch.clamp(torch.clamp(x[:, :, :, 0], min=-1.), max=1.)
     x1 = torch.clamp(torch.clamp(
-       x[:, :, :, 1] + coeffs[:, :, :, 0] * x0, min=-1.), max=1.)
+        x[:, :, :, 1] + coeffs[:, :, :, 0] * x0, min=-1.), max=1.)
     x2 = torch.clamp(torch.clamp(
-       x[:, :, :, 2] + coeffs[:, :, :, 1] * x0 + coeffs[:, :, :, 2] * x1, min=-1.), max=1.)
+        x[:, :, :, 2] + coeffs[:, :, :, 1] * x0 + coeffs[:, :, :, 2] * x1, min=-1.), max=1.)
 
-    out = torch.cat([x0.view(xs[:-1] + [1]), x1.view(xs[:-1] + [1]), x2.view(xs[:-1] + [1])], dim=3)
+    out = torch.cat([x0.view(xs[:-1] + [1]),
+                    x1.view(xs[:-1] + [1]), x2.view(xs[:-1] + [1])], dim=3)
     # put back in Pytorch ordering
     out = out.permute(0, 3, 1, 2)
     return out
 
 
-
 ''' utilities for shifting the image around, efficient alternative to masking convolutions '''
+
+
 def down_shift(x, pad=None):
     # Pytorch ordering
     xs = [int(y) for y in x.size()]
-    # when downshifting, the last row is removed 
+    # when downshifting, the last row is removed
     x = x[:, :, :xs[2] - 1, :]
     # padding left, padding right, padding top, padding bottom
     pad = nn.ZeroPad2d((0, 0, 1, 0)) if pad is None else pad
@@ -608,7 +661,7 @@ def down_shift(x, pad=None):
 def right_shift(x, pad=None):
     # Pytorch ordering
     xs = [int(y) for y in x.size()]
-    # when righshifting, the last column is removed 
+    # when righshifting, the last column is removed
     x = x[:, :, :, :xs[3] - 1]
     # padding left, padding right, padding top, padding bottom
     pad = nn.ZeroPad2d((1, 0, 0, 0)) if pad is None else pad
@@ -620,13 +673,14 @@ def load_part_of_model(model, path):
     added = 0
     for name, param in params.items():
         if name in model.state_dict().keys():
-            try : 
+            try:
                 model.state_dict()[name].copy_(param)
                 added += 1
             except Exception as e:
                 print(e)
                 pass
-    print('added %s of params:' % (added / float(len(model.state_dict().keys()))))
+    print('added %s of params:' %
+          (added / float(len(model.state_dict().keys()))))
 
 
 class nin(nn.Module):
@@ -634,7 +688,7 @@ class nin(nn.Module):
         super(nin, self).__init__()
         self.lin_a = wn(nn.Linear(dim_in, dim_out))
         self.dim_out = dim_out
-    
+
     def forward(self, x):
         og_x = x
         # assumes pytorch ordering
@@ -649,27 +703,29 @@ class nin(nn.Module):
 
 
 class down_shifted_conv2d(nn.Module):
-    def __init__(self, num_filters_in, num_filters_out, filter_size=(2,3), stride=(1,1), 
-                    shift_output_down=False, norm='weight_norm'):
+    def __init__(self, num_filters_in, num_filters_out, filter_size=(2, 3), stride=(1, 1),
+                 shift_output_down=False, norm='weight_norm'):
         super(down_shifted_conv2d, self).__init__()
-        
+
         assert norm in [None, 'batch_norm', 'weight_norm']
-        self.conv = nn.Conv2d(num_filters_in, num_filters_out, filter_size, stride)
+        self.conv = nn.Conv2d(
+            num_filters_in, num_filters_out, filter_size, stride)
         self.shift_output_down = shift_output_down
         self.norm = norm
-        self.pad  = nn.ZeroPad2d((int((filter_size[1] - 1) / 2), # pad left
-                                  int((filter_size[1] - 1) / 2), # pad right
-                                  filter_size[0] - 1,            # pad top
-                                  0) )                           # pad down
-        
+        self.pad = nn.ZeroPad2d((int((filter_size[1] - 1) / 2),  # pad left
+                                 int((filter_size[1] - 1) / 2),  # pad right
+                                 filter_size[0] - 1,            # pad top
+                                 0))                           # pad down
+
         if norm == 'weight_norm':
             self.conv = wn(self.conv)
         elif norm == 'batch_norm':
             self.bn = nn.BatchNorm2d(num_filters_out)
 
-        if shift_output_down :
-            self.down_shift = lambda x : down_shift(x, pad=nn.ZeroPad2d((0, 0, 1, 0)))
-    
+        if shift_output_down:
+            self.down_shift = lambda x: down_shift(
+                x, pad=nn.ZeroPad2d((0, 0, 1, 0)))
+
     def forward(self, x):
         x = self.pad(x)
         x = self.conv(x)
@@ -678,9 +734,9 @@ class down_shifted_conv2d(nn.Module):
 
 
 class down_shifted_deconv2d(nn.Module):
-    def __init__(self, num_filters_in, num_filters_out, filter_size=(2,3), stride=(1,1)):
+    def __init__(self, num_filters_in, num_filters_out, filter_size=(2, 3), stride=(1, 1)):
         super(down_shifted_deconv2d, self).__init__()
-        self.deconv = wn(nn.ConvTranspose2d(num_filters_in, num_filters_out, filter_size, stride, 
+        self.deconv = wn(nn.ConvTranspose2d(num_filters_in, num_filters_out, filter_size, stride,
                                             output_padding=1))
         self.filter_size = filter_size
         self.stride = stride
@@ -688,18 +744,19 @@ class down_shifted_deconv2d(nn.Module):
     def forward(self, x):
         x = self.deconv(x)
         xs = [int(y) for y in x.size()]
-        return x[:, :, :(xs[2] - self.filter_size[0] + 1), 
+        return x[:, :, :(xs[2] - self.filter_size[0] + 1),
                  int((self.filter_size[1] - 1) / 2):(xs[3] - int((self.filter_size[1] - 1) / 2))]
 
 
 class down_right_shifted_conv2d(nn.Module):
-    def __init__(self, num_filters_in, num_filters_out, filter_size=(2,2), stride=(1,1), 
-                    shift_output_right=False, norm='weight_norm'):
+    def __init__(self, num_filters_in, num_filters_out, filter_size=(2, 2), stride=(1, 1),
+                 shift_output_right=False, norm='weight_norm'):
         super(down_right_shifted_conv2d, self).__init__()
-        
+
         assert norm in [None, 'batch_norm', 'weight_norm']
         self.pad = nn.ZeroPad2d((filter_size[1] - 1, 0, filter_size[0] - 1, 0))
-        self.conv = nn.Conv2d(num_filters_in, num_filters_out, filter_size, stride=stride)
+        self.conv = nn.Conv2d(
+            num_filters_in, num_filters_out, filter_size, stride=stride)
         self.shift_output_right = shift_output_right
         self.norm = norm
 
@@ -708,8 +765,9 @@ class down_right_shifted_conv2d(nn.Module):
         elif norm == 'batch_norm':
             self.bn = nn.BatchNorm2d(num_filters_out)
 
-        if shift_output_right :
-            self.right_shift = lambda x : right_shift(x, pad=nn.ZeroPad2d((1, 0, 0, 0)))
+        if shift_output_right:
+            self.right_shift = lambda x: right_shift(
+                x, pad=nn.ZeroPad2d((1, 0, 0, 0)))
 
     def forward(self, x):
         x = self.pad(x)
@@ -719,18 +777,19 @@ class down_right_shifted_conv2d(nn.Module):
 
 
 class down_right_shifted_deconv2d(nn.Module):
-    def __init__(self, num_filters_in, num_filters_out, filter_size=(2,2), stride=(1,1), 
-                    shift_output_right=False):
+    def __init__(self, num_filters_in, num_filters_out, filter_size=(2, 2), stride=(1, 1),
+                 shift_output_right=False):
         super(down_right_shifted_deconv2d, self).__init__()
-        self.deconv = wn(nn.ConvTranspose2d(num_filters_in, num_filters_out, filter_size, 
-                                                stride, output_padding=1))
+        self.deconv = wn(nn.ConvTranspose2d(num_filters_in, num_filters_out, filter_size,
+                                            stride, output_padding=1))
         self.filter_size = filter_size
         self.stride = stride
 
     def forward(self, x):
         x = self.deconv(x)
         xs = [int(y) for y in x.size()]
-        x = x[:, :, :(xs[2] - self.filter_size[0] + 1):, :(xs[3] - self.filter_size[1] + 1)]
+        x = x[:, :, :(xs[2] - self.filter_size[0] + 1):,
+              :(xs[3] - self.filter_size[1] + 1)]
         return x
 
 
@@ -739,14 +798,17 @@ skip connection parameter : 0 = no skip connection
                             1 = skip connection where skip input size === input size
                             2 = skip connection where skip input size === 2 * input size
 '''
+
+
 class gated_resnet(nn.Module):
     def __init__(self, num_filters, conv_op, nonlinearity=concat_elu, skip_connection=0, h_dim=768):
         super(gated_resnet, self).__init__()
         self.skip_connection = skip_connection
         self.nonlinearity = nonlinearity
-        self.conv_input = conv_op(2 * num_filters, num_filters) # cuz of concat elu
-        
-        if skip_connection != 0 : 
+        self.conv_input = conv_op(
+            2 * num_filters, num_filters)  # cuz of concat elu
+
+        if skip_connection != 0:
             self.nin_skip = nin(2 * skip_connection * num_filters, num_filters)
 
         self.dropout = nn.Dropout2d(0.5)
@@ -756,10 +818,9 @@ class gated_resnet(nn.Module):
         self.hw = Parameter(hw_normal, requires_grad=True)
         self.num_filters = num_filters
 
-
     def forward(self, og_x, a=None, h=None):
         x = self.conv_input(self.nonlinearity(og_x))
-        if a is not None : 
+        if a is not None:
             x += self.nin_skip(self.nonlinearity(a))
         x = self.nonlinearity(x)
         x = self.dropout(x)
@@ -771,10 +832,11 @@ class gated_resnet(nn.Module):
             # print('x', x.shape)
             # print('matmul', torch.matmul(h, self.hw).shape)
             # print('hw_view', torch.matmul(h, self.hw).view(og_x.shape[0], 2*self.num_filters, 1, 1).shape)
-            h = torch.matmul(h, self.hw).view(og_x.shape[0], 2*self.num_filters, 1, 1)
+            h = torch.matmul(h, self.hw).view(
+                og_x.shape[0], 2*self.num_filters, 1, 1)
             h = h.repeat(1, 1, x.shape[-1], x.shape[-1])
             x += h
-        
+
         a, b = torch.chunk(x, 2, dim=1)
         # print('a', a.shape)
         # print('b', b.shape)
@@ -790,22 +852,22 @@ class PixelCNNLayer_up(nn.Module):
         super(PixelCNNLayer_up, self).__init__()
         self.nr_resnet = nr_resnet
         # stream from pixels above
-        self.u_stream = nn.ModuleList([gated_resnet(nr_filters, down_shifted_conv2d, 
-                                        resnet_nonlinearity, skip_connection=0) 
-                                            for _ in range(nr_resnet)])
-        
+        self.u_stream = nn.ModuleList([gated_resnet(nr_filters, down_shifted_conv2d,
+                                                    resnet_nonlinearity, skip_connection=0)
+                                       for _ in range(nr_resnet)])
+
         # stream from pixels above and to thes left
-        self.ul_stream = nn.ModuleList([gated_resnet(nr_filters, down_right_shifted_conv2d, 
-                                        resnet_nonlinearity, skip_connection=1) 
-                                            for _ in range(nr_resnet)])
+        self.ul_stream = nn.ModuleList([gated_resnet(nr_filters, down_right_shifted_conv2d,
+                                        resnet_nonlinearity, skip_connection=1)
+                                        for _ in range(nr_resnet)])
 
     def forward(self, u, ul, h=None):
         u_list, ul_list = [], []
-        
+
         for i in range(self.nr_resnet):
-            u  = self.u_stream[i](u, a=None, h=h)
+            u = self.u_stream[i](u, a=None, h=h)
             ul = self.ul_stream[i](ul, a=u, h=h)
-            u_list  += [u]
+            u_list += [u]
             ul_list += [ul]
 
         return u_list, ul_list
@@ -816,109 +878,111 @@ class PixelCNNLayer_down(nn.Module):
         super(PixelCNNLayer_down, self).__init__()
         self.nr_resnet = nr_resnet
         # stream from pixels above
-        self.u_stream  = nn.ModuleList([gated_resnet(nr_filters, down_shifted_conv2d, 
-                                        resnet_nonlinearity, skip_connection=1) 
-                                            for _ in range(nr_resnet)])
-        
+        self.u_stream = nn.ModuleList([gated_resnet(nr_filters, down_shifted_conv2d,
+                                                    resnet_nonlinearity, skip_connection=1)
+                                       for _ in range(nr_resnet)])
+
         # stream from pixels above and to thes left
-        self.ul_stream = nn.ModuleList([gated_resnet(nr_filters, down_right_shifted_conv2d, 
-                                        resnet_nonlinearity, skip_connection=2) 
-                                            for _ in range(nr_resnet)])
+        self.ul_stream = nn.ModuleList([gated_resnet(nr_filters, down_right_shifted_conv2d,
+                                        resnet_nonlinearity, skip_connection=2)
+                                        for _ in range(nr_resnet)])
 
     def forward(self, u, ul, u_list, ul_list, h=None):
         for i in range(self.nr_resnet):
-            u  = self.u_stream[i](u, a=u_list.pop(), h=h)
+            u = self.u_stream[i](u, a=u_list.pop(), h=h)
             ul = self.ul_stream[i](ul, a=torch.cat((u, ul_list.pop()), 1), h=h)
-        
+
         return u, ul
 
 
 class ImageDecoder(nn.Module):
-    def __init__(self, nr_resnet=5, nr_filters=80, nr_logistic_mix=10, 
-                    resnet_nonlinearity='concat_elu', input_channels=3):
+    def __init__(self, nr_resnet=5, nr_filters=80, nr_logistic_mix=10,
+                 resnet_nonlinearity='concat_elu', input_channels=3):
         super(ImageDecoder, self).__init__()
-        if resnet_nonlinearity == 'concat_elu' : 
-            self.resnet_nonlinearity = lambda x : concat_elu(x)
-        else : 
-            raise Exception('right now only concat elu is supported as resnet nonlinearity.')
+        if resnet_nonlinearity == 'concat_elu':
+            self.resnet_nonlinearity = lambda x: concat_elu(x)
+        else:
+            raise Exception(
+                'right now only concat elu is supported as resnet nonlinearity.')
 
         self.nr_filters = nr_filters
         self.input_channels = input_channels
         self.nr_logistic_mix = nr_logistic_mix
         self.right_shift_pad = nn.ZeroPad2d((1, 0, 0, 0))
-        self.down_shift_pad  = nn.ZeroPad2d((0, 0, 1, 0))
+        self.down_shift_pad = nn.ZeroPad2d((0, 0, 1, 0))
 
         down_nr_resnet = [nr_resnet] + [nr_resnet + 1] * 2
-        self.down_layers = nn.ModuleList([PixelCNNLayer_down(down_nr_resnet[i], nr_filters, 
-                                                self.resnet_nonlinearity) for i in range(3)])
+        self.down_layers = nn.ModuleList([PixelCNNLayer_down(down_nr_resnet[i], nr_filters,
+                                                             self.resnet_nonlinearity) for i in range(3)])
 
-        self.up_layers   = nn.ModuleList([PixelCNNLayer_up(nr_resnet, nr_filters, 
-                                                self.resnet_nonlinearity) for _ in range(3)])
+        self.up_layers = nn.ModuleList([PixelCNNLayer_up(nr_resnet, nr_filters,
+                                                         self.resnet_nonlinearity) for _ in range(3)])
 
-        self.downsize_u_stream  = nn.ModuleList([down_shifted_conv2d(nr_filters, nr_filters, 
-                                                    stride=(2,2)) for _ in range(2)])
+        self.downsize_u_stream = nn.ModuleList([down_shifted_conv2d(nr_filters, nr_filters,
+                                                                    stride=(2, 2)) for _ in range(2)])
 
-        self.downsize_ul_stream = nn.ModuleList([down_right_shifted_conv2d(nr_filters, 
-                                                    nr_filters, stride=(2,2)) for _ in range(2)])
-        
-        self.upsize_u_stream  = nn.ModuleList([down_shifted_deconv2d(nr_filters, nr_filters, 
-                                                    stride=(2,2)) for _ in range(2)])
-        
-        self.upsize_ul_stream = nn.ModuleList([down_right_shifted_deconv2d(nr_filters, 
-                                                    nr_filters, stride=(2,2)) for _ in range(2)])
-        
-        self.u_init = down_shifted_conv2d(input_channels + 1, nr_filters, filter_size=(2,3), 
-                        shift_output_down=True)
+        self.downsize_ul_stream = nn.ModuleList([down_right_shifted_conv2d(nr_filters,
+                                                                           nr_filters, stride=(2, 2)) for _ in range(2)])
 
-        self.ul_init = nn.ModuleList([down_shifted_conv2d(input_channels + 1, nr_filters, 
-                                            filter_size=(1,3), shift_output_down=True), 
-                                       down_right_shifted_conv2d(input_channels + 1, nr_filters, 
-                                            filter_size=(2,1), shift_output_right=True)])
-    
+        self.upsize_u_stream = nn.ModuleList([down_shifted_deconv2d(nr_filters, nr_filters,
+                                                                    stride=(2, 2)) for _ in range(2)])
+
+        self.upsize_ul_stream = nn.ModuleList([down_right_shifted_deconv2d(nr_filters,
+                                                                           nr_filters, stride=(2, 2)) for _ in range(2)])
+
+        self.u_init = down_shifted_conv2d(input_channels + 1, nr_filters, filter_size=(2, 3),
+                                          shift_output_down=True)
+
+        self.ul_init = nn.ModuleList([down_shifted_conv2d(input_channels + 1, nr_filters,
+                                                          filter_size=(1, 3), shift_output_down=True),
+                                      down_right_shifted_conv2d(input_channels + 1, nr_filters,
+                                                                filter_size=(2, 1), shift_output_right=True)])
+
         num_mix = 3 if self.input_channels == 1 else 10
         self.nin_out = nin(nr_filters, num_mix * nr_logistic_mix)
         self.init_padding = None
 
-
     def forward(self, x, h=None, sample=False):
-        # similar as done in the tf repo :  
-        if self.init_padding is None and not sample: 
+        # similar as done in the tf repo :
+        if self.init_padding is None and not sample:
             xs = [int(y) for y in x.size()]
-            padding = Variable(torch.ones(xs[0], 1, xs[2], xs[3]), requires_grad=False)
+            padding = Variable(torch.ones(
+                xs[0], 1, xs[2], xs[3]), requires_grad=False)
             self.init_padding = padding.cuda() if x.is_cuda else padding
-        
-        if sample : 
+
+        if sample:
             xs = [int(y) for y in x.size()]
-            padding = Variable(torch.ones(xs[0], 1, xs[2], xs[3]), requires_grad=False)
+            padding = Variable(torch.ones(
+                xs[0], 1, xs[2], xs[3]), requires_grad=False)
             padding = padding.cuda() if x.is_cuda else padding
             x = torch.cat((x, padding), 1)
 
         ###      UP PASS    ###
         x = x if sample else torch.cat((x, self.init_padding), 1)
-        u_list  = [self.u_init(x)]
+        u_list = [self.u_init(x)]
         ul_list = [self.ul_init[0](x) + self.ul_init[1](x)]
         for i in range(3):
             # resnet block
             u_out, ul_out = self.up_layers[i](u_list[-1], ul_list[-1], h=h)
-            u_list  += u_out
+            u_list += u_out
             ul_list += ul_out
 
-            if i != 2: 
+            if i != 2:
                 # downscale (only twice)
-                u_list  += [self.downsize_u_stream[i](u_list[-1])]
+                u_list += [self.downsize_u_stream[i](u_list[-1])]
                 ul_list += [self.downsize_ul_stream[i](ul_list[-1])]
 
         ###    DOWN PASS    ###
-        u  = u_list.pop()
+        u = u_list.pop()
         ul = ul_list.pop()
-        
+
         for i in range(3):
             # resnet block
             u, ul = self.down_layers[i](u, ul, u_list, ul_list, h=h)
 
             # upscale (only twice)
-            if i != 2 :
-                u  = self.upsize_u_stream[i](u)
+            if i != 2:
+                u = self.upsize_u_stream[i](u)
                 ul = self.upsize_ul_stream[i](ul)
 
         x_out = self.nin_out(F.elu(ul))
@@ -930,8 +994,10 @@ class ImageDecoder(nn.Module):
 
 def LOSS_IT(scores, alphas, sorted_cap, decode_lengths, criterion):
     sorted_cap = sorted_cap[:, 1:]
-    scores = pack_padded_sequence(scores, decode_lengths, batch_first=True).data
-    targets = pack_padded_sequence(sorted_cap, decode_lengths, batch_first=True).data
+    scores = pack_padded_sequence(
+        scores, decode_lengths, batch_first=True).data
+    targets = pack_padded_sequence(
+        sorted_cap, decode_lengths, batch_first=True).data
     loss = criterion(scores, targets)
     loss += 1.0 * ((1. - alphas.sum(dim=1)) ** 2).mean()
     return loss
@@ -1074,7 +1140,8 @@ class CRF(nn.Module):
                   tags: Optional[torch.LongTensor] = None,
                   mask: Optional[torch.ByteTensor] = None) -> None:
         if emissions.dim() != 3:
-            raise ValueError(f'emissions must have dimension of 3, got {emissions.dim()}')
+            raise ValueError(
+                f'emissions must have dimension of 3, got {emissions.dim()}')
         if emissions.size(2) != self.num_tags:
             raise ValueError(
                 f'expected last dimension of emissions is {self.num_tags}, '
@@ -1300,11 +1367,13 @@ class CRF(nn.Module):
                 broadcast_score = score.unsqueeze(-1)
                 broadcast_emission = emissions[i].unsqueeze(1).unsqueeze(2)
                 # shape: (batch_size, num_tags, nbest, num_tags)
-                next_score = broadcast_score + self.transitions.unsqueeze(1) + broadcast_emission
+                next_score = broadcast_score + \
+                    self.transitions.unsqueeze(1) + broadcast_emission
 
             # Find the top `nbest` maximum score over all possible current tag
             # shape: (batch_size, nbest, num_tags)
-            next_score, indices = next_score.view(batch_size, -1, self.num_tags).topk(nbest, dim=1)
+            next_score, indices = next_score.view(
+                batch_size, -1, self.num_tags).topk(nbest, dim=1)
 
             if i == 1:
                 score = score.unsqueeze(-1).expand(-1, -1, nbest)
@@ -1317,8 +1386,10 @@ class CRF(nn.Module):
             # Set score to the next score if this timestep is valid (mask == 1)
             # and save the index that produces the next score
             # shape: (batch_size, num_tags, nbest)
-            score = torch.where(mask[i].unsqueeze(-1).unsqueeze(-1), next_score, score)
-            indices = torch.where(mask[i].unsqueeze(-1).unsqueeze(-1), indices, oor_idx)
+            score = torch.where(
+                mask[i].unsqueeze(-1).unsqueeze(-1), next_score, score)
+            indices = torch.where(
+                mask[i].unsqueeze(-1).unsqueeze(-1), indices, oor_idx)
             history_idx[i - 1] = indices
 
         # End transition score shape: (batch_size, num_tags, nbest)
@@ -1340,7 +1411,8 @@ class CRF(nn.Module):
         best_tags = torch.arange(nbest, dtype=torch.long, device=device) \
                          .view(1, -1).expand(batch_size, -1)
         for idx in range(seq_length - 1, -1, -1):
-            best_tags = torch.gather(history_idx[idx].view(batch_size, -1), 1, best_tags)
+            best_tags = torch.gather(
+                history_idx[idx].view(batch_size, -1), 1, best_tags)
             best_tags_arr[idx] = best_tags.data.view(batch_size, -1) // nbest
 
         return torch.where(mask.unsqueeze(-1), best_tags_arr, oor_tag).permute(2, 1, 0)

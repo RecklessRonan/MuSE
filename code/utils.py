@@ -18,6 +18,7 @@ from pathlib import Path
 nlp = English()
 logger = logging.getLogger(__name__)
 
+
 def mnerreadfile(filename):
     '''
     read file
@@ -102,7 +103,7 @@ class DataProcessor(object):
     def _read_mmtsv(cls, input_file, quotechar=None):
         """Reads a tab separated value file."""
         return mnerreadfile(input_file)
-    
+
     def _read_mmtxt(cls, input_file, quotechar=None):
         return msareadfile(input_file)
 
@@ -116,10 +117,12 @@ class MNERInputExample(object):
 
     def __repr__(self):
         return str(self.to_json_string())
+
     def to_dict(self):
         """Serializes this instance to a Python dictionary."""
         output = copy.deepcopy(self.__dict__)
         return output
+
     def to_json_string(self):
         """Serializes this instance to a JSON string."""
         return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
@@ -134,10 +137,12 @@ class MSAInputExample(object):
 
     def __repr__(self):
         return str(self.to_json_string())
+
     def to_dict(self):
         """Serializes this instance to a Python dictionary."""
         output = copy.deepcopy(self.__dict__)
         return output
+
     def to_json_string(self):
         """Serializes this instance to a JSON string."""
         return json.dumps(self.to_dict(), indent=2, sort_keys=True) + "\n"
@@ -333,24 +338,23 @@ def image_process(image_path, transform):
     return image
 
 
-def convert_one_mner_example_to_feature(example, label_list, tokenizer, max_seq_length, path_img, vocabulary, cls_token_at_end=False,cls_token="[CLS]",cls_token_segment_id=1,
-                                 sep_token="[SEP]",pad_on_left=False,pad_token=0,pad_token_segment_id=0, sequence_a_segment_id=0,mask_padding_with_zero=True,
-                                 crop_size=224, ti_crop_size=32):
+def convert_one_mner_example_to_feature(example, label_list, tokenizer, max_seq_length, path_img, vocabulary, cls_token_at_end=False, cls_token="[CLS]", cls_token_segment_id=1,
+                                        sep_token="[SEP]", pad_on_left=False, pad_token=0, pad_token_segment_id=0, sequence_a_segment_id=0, mask_padding_with_zero=True,
+                                        crop_size=224, ti_crop_size=32):
     label_map = {label: i for i, label in enumerate(label_list)}
 
     transform = transforms.Compose([
-        transforms.Resize([crop_size, crop_size]), # 调整图片到指定的大小
+        transforms.Resize([crop_size, crop_size]),  # 调整图片到指定的大小
         transforms.ToTensor(),
         transforms.Normalize((0.48, 0.498, 0.531),
-                            (0.214, 0.207, 0.207))])
+                             (0.214, 0.207, 0.207))])
 
     transform_for_ti = transforms.Compose([
-        transforms.Resize([ti_crop_size, ti_crop_size]), # 调整图片到指定的大小
+        transforms.Resize([ti_crop_size, ti_crop_size]),  # 调整图片到指定的大小
         transforms.ToTensor(),
         transforms.Normalize((0.48, 0.498, 0.531),
-                            (0.214, 0.207, 0.207))])
+                             (0.214, 0.207, 0.207))])
 
-    
     textlist = example.text_a.split(' ')
     real_label = example.labels
 
@@ -372,7 +376,7 @@ def convert_one_mner_example_to_feature(example, label_list, tokenizer, max_seq_
     if len(tokens) > max_seq_length - special_tokens_count:
         tokens = tokens[: (max_seq_length - special_tokens_count)]
         label_ids = label_ids[: (max_seq_length - special_tokens_count)]
-    
+
     tokens += [sep_token]
     label_ids += [label_map['O']]
     segment_ids = [sequence_a_segment_id] * len(tokens)
@@ -403,27 +407,29 @@ def convert_one_mner_example_to_feature(example, label_list, tokenizer, max_seq_
         padding_length = max_seq_length - len(input_ids)
         if pad_on_left:
             input_ids = ([pad_token] * padding_length) + input_ids
-            input_mask = ([0 if mask_padding_with_zero else 1] * padding_length) + input_mask
-            segment_ids = ([pad_token_segment_id] * padding_length) + segment_ids
+            input_mask = ([0 if mask_padding_with_zero else 1]
+                          * padding_length) + input_mask
+            segment_ids = ([pad_token_segment_id] *
+                           padding_length) + segment_ids
             label_ids = ([pad_token] * padding_length) + label_ids
         else:
             input_ids += [pad_token] * padding_length
             input_mask += [0 if mask_padding_with_zero else 1] * padding_length
             segment_ids += [pad_token_segment_id] * padding_length
             label_ids += [pad_token] * padding_length
-    
+
     image_name = example.img_id
     image_path = os.path.join(path_img, image_name)
     if not os.path.exists(image_path):
         print('Not exist:', image_path)
     try:
         # print('Image path', image_path)
-        image_feat= image_process(image_path, transform)
+        image_feat = image_process(image_path, transform)
         image_ti_feat = image_process(image_path, transform_for_ti)
     except:
         image_path_fail = os.path.join(path_img, '17_06_4705.jpg')
         image_feat = image_process(image_path_fail, transform)
-        image_ti_feat = image_process(image_path_fail, transform_for_ti)    
+        image_ti_feat = image_process(image_path_fail, transform_for_ti)
 
     caption = []
     for word in vocabulary.tokenizer_eng(example.text_a):
@@ -436,9 +442,8 @@ def convert_one_mner_example_to_feature(example, label_list, tokenizer, max_seq_
         caption.append(vocabulary.stoi["<PAD>"])
     # print('label_ids', len(label_ids))
     # print(label_ids)
-    return MNERInputFeatures(input_ids=input_ids, input_mask=input_mask, input_len=input_len, segment_ids=segment_ids, 
-                            label_ids=label_ids, img_feat=image_feat, img_ti_feat=image_ti_feat, caption=caption, caption_len=caption_len)
-
+    return MNERInputFeatures(input_ids=input_ids, input_mask=input_mask, input_len=input_len, segment_ids=segment_ids,
+                             label_ids=label_ids, img_feat=image_feat, img_ti_feat=image_ti_feat, caption=caption, caption_len=caption_len)
 
 
 # def convert_one_mner_example_to_features(example, label_list, auxlabel_list, max_seq_length, tokenizer, crop_size, path_img, ti_crop_size, vocabulary):
@@ -450,7 +455,7 @@ def convert_one_mner_example_to_feature(example, label_list, tokenizer, max_seq_
 #         transforms.ToTensor(),
 #         transforms.Normalize((0.48, 0.498, 0.531),
 #                             (0.214, 0.207, 0.207))])
-    
+
 
 #     transform_for_ti = transforms.Compose([
 #         transforms.Resize([ti_crop_size, ti_crop_size]), # 调整图片到指定的大小
@@ -560,25 +565,24 @@ def convert_one_mner_example_to_feature(example, label_list, tokenizer, max_seq_
 #     return input_ids, input_mask, segment_ids, img_feat, label_ids, img_ti_feat, caption, length, input_len
 
 
-def convert_one_msa_example_to_feature(example, label_list, tokenizer, max_seq_length, path_img, vocabulary, cls_token_at_end=False,cls_token="[CLS]",cls_token_segment_id=1,
-                                 sep_token="[SEP]",pad_on_left=False,pad_token=0,pad_token_segment_id=0, sequence_a_segment_id=0,mask_padding_with_zero=True,
-                                 crop_size=224, ti_crop_size=32):
+def convert_one_msa_example_to_feature(example, label_list, tokenizer, max_seq_length, path_img, vocabulary, cls_token_at_end=False, cls_token="[CLS]", cls_token_segment_id=1,
+                                       sep_token="[SEP]", pad_on_left=False, pad_token=0, pad_token_segment_id=0, sequence_a_segment_id=0, mask_padding_with_zero=True,
+                                       crop_size=224, ti_crop_size=32):
     label_map = {label: i for i, label in enumerate(label_list)}
     label = label_map[example.label]
 
     transform = transforms.Compose([
-        transforms.Resize([crop_size, crop_size]), # 调整图片到指定的大小
+        transforms.Resize([crop_size, crop_size]),  # 调整图片到指定的大小
         transforms.ToTensor(),
         transforms.Normalize((0.48, 0.498, 0.531),
-                            (0.214, 0.207, 0.207))])
+                             (0.214, 0.207, 0.207))])
 
     transform_for_ti = transforms.Compose([
-        transforms.Resize([ti_crop_size, ti_crop_size]), # 调整图片到指定的大小
+        transforms.Resize([ti_crop_size, ti_crop_size]),  # 调整图片到指定的大小
         transforms.ToTensor(),
         transforms.Normalize((0.48, 0.498, 0.531),
-                            (0.214, 0.207, 0.207))])
+                             (0.214, 0.207, 0.207))])
 
-    
     text_name = path_img + '/' + str(example.text_id) + '.txt'
     with open(text_name, 'r', encoding='unicode_escape') as f:
         text = f.readlines()
@@ -589,11 +593,9 @@ def convert_one_msa_example_to_feature(example, label_list, tokenizer, max_seq_l
     special_tokens_count = 2
     if len(tokens) > max_seq_length - special_tokens_count:
         tokens = tokens[: (max_seq_length - special_tokens_count)]
-    
+
     tokens += [sep_token]
     segment_ids = [sequence_a_segment_id] * len(tokens)
-
-
 
     if cls_token_at_end:
         tokens += [cls_token]
@@ -612,25 +614,27 @@ def convert_one_msa_example_to_feature(example, label_list, tokenizer, max_seq_l
         padding_length = max_seq_length - len(input_ids)
         if pad_on_left:
             input_ids = ([pad_token] * padding_length) + input_ids
-            input_mask = ([0 if mask_padding_with_zero else 1] * padding_length) + input_mask
-            segment_ids = ([pad_token_segment_id] * padding_length) + segment_ids
+            input_mask = ([0 if mask_padding_with_zero else 1]
+                          * padding_length) + input_mask
+            segment_ids = ([pad_token_segment_id] *
+                           padding_length) + segment_ids
         else:
             input_ids += [pad_token] * padding_length
             input_mask += [0 if mask_padding_with_zero else 1] * padding_length
             segment_ids += [pad_token_segment_id] * padding_length
-    
+
     image_name = str(example.img_id) + '.jpg'
     image_path = os.path.join(path_img, image_name)
     if not os.path.exists(image_path):
         print('Not exist:', image_path)
     try:
         # print('Image path', image_path)
-        image_feat= image_process(image_path, transform)
+        image_feat = image_process(image_path, transform)
         image_ti_feat = image_process(image_path, transform_for_ti)
     except:
         image_path_fail = os.path.join(path_img, '17_06_4705.jpg')
         image_feat = image_process(image_path_fail, transform)
-        image_ti_feat = image_process(image_path_fail, transform_for_ti)    
+        image_ti_feat = image_process(image_path_fail, transform_for_ti)
 
     caption = []
     for word in vocabulary.tokenizer_eng(text[0]):
@@ -654,8 +658,8 @@ def convert_one_msa_example_to_feature(example, label_list, tokenizer, max_seq_l
     # print('img_ti_feat', image_ti_feat)
     # print('caption', caption)
     # print('caption_len', caption_len)
-    return MNERInputFeatures(input_ids=input_ids, input_mask=input_mask, input_len=input_len, segment_ids=segment_ids, 
-                            label_ids=label, img_feat=image_feat, img_ti_feat=image_ti_feat, caption=caption, caption_len=caption_len)
+    return MNERInputFeatures(input_ids=input_ids, input_mask=input_mask, input_len=input_len, segment_ids=segment_ids,
+                             label_ids=label, img_feat=image_feat, img_ti_feat=image_ti_feat, caption=caption, caption_len=caption_len)
 
 
 class MNERDataset(Dataset):
@@ -670,26 +674,26 @@ class MNERDataset(Dataset):
         self.vocabulary = vocabulary
         self.use_xlmr = use_xlmr
 
-    def __len__(self):       
+    def __len__(self):
         return len(self.examples)
 
     def __getitem__(self, index):
         example = self.examples[index]
-        # feature = convert_one_mner_example_to_feature(example=example, label_list=self.label_list, auxlabel_list=self.auxlabel_list, 
+        # feature = convert_one_mner_example_to_feature(example=example, label_list=self.label_list, auxlabel_list=self.auxlabel_list,
         #             max_seq_length=self.max_seq_length, tokenizer=self.tokenizer, crop_size=self.crop_size, path_img=self.path_img,
         #             ti_crop_size=self.ti_crop_size, vocabulary=self.vocabulary)
         if not self.use_xlmr:
-            feature = convert_one_mner_example_to_feature(example=example, label_list=self.label_list, tokenizer=self.tokenizer, 
-                                 max_seq_length=self.max_seq_length, path_img=self.path_img, vocabulary=self.vocabulary, 
-                                 cls_token_at_end=False,cls_token="[CLS]",cls_token_segment_id=1,sep_token="[SEP]",
-                                 pad_on_left=False,pad_token=0,pad_token_segment_id=0, sequence_a_segment_id=0,mask_padding_with_zero=True,
-                                 crop_size=self.crop_size, ti_crop_size=self.ti_crop_size)
+            feature = convert_one_mner_example_to_feature(example=example, label_list=self.label_list, tokenizer=self.tokenizer,
+                                                          max_seq_length=self.max_seq_length, path_img=self.path_img, vocabulary=self.vocabulary,
+                                                          cls_token_at_end=False, cls_token="[CLS]", cls_token_segment_id=1, sep_token="[SEP]",
+                                                          pad_on_left=False, pad_token=0, pad_token_segment_id=0, sequence_a_segment_id=0, mask_padding_with_zero=True,
+                                                          crop_size=self.crop_size, ti_crop_size=self.ti_crop_size)
         else:
-            feature = convert_one_mner_example_to_feature(example=example, label_list=self.label_list, tokenizer=self.tokenizer, 
-                                 max_seq_length=self.max_seq_length, path_img=self.path_img, vocabulary=self.vocabulary, 
-                                 cls_token_at_end=False,cls_token="<s>",cls_token_segment_id=0,sep_token="</s>",
-                                 pad_on_left=False, pad_token=1,pad_token_segment_id=0, sequence_a_segment_id=2,mask_padding_with_zero=True,
-                                 crop_size=self.crop_size, ti_crop_size=self.ti_crop_size)
+            feature = convert_one_mner_example_to_feature(example=example, label_list=self.label_list, tokenizer=self.tokenizer,
+                                                          max_seq_length=self.max_seq_length, path_img=self.path_img, vocabulary=self.vocabulary,
+                                                          cls_token_at_end=False, cls_token="<s>", cls_token_segment_id=0, sep_token="</s>",
+                                                          pad_on_left=False, pad_token=1, pad_token_segment_id=0, sequence_a_segment_id=2, mask_padding_with_zero=True,
+                                                          crop_size=self.crop_size, ti_crop_size=self.ti_crop_size)
         input_ids = torch.tensor(feature.input_ids, dtype=torch.long)
         input_mask = torch.tensor(feature.input_mask, dtype=torch.long)
         segment_ids = torch.tensor(feature.segment_ids, dtype=torch.long)
@@ -699,7 +703,6 @@ class MNERDataset(Dataset):
         caption = torch.tensor(feature.caption)
         length = torch.tensor(feature.caption_len).long()
         input_len = torch.tensor(feature.input_len).long()
-
 
         # print('input_ids', input_ids)
         # print('input_mask', input_mask)
@@ -725,23 +728,23 @@ class MSADataset(Dataset):
         self.vocabulary = vocabulary
         self.use_xlmr = use_xlmr
 
-    def __len__(self):       
+    def __len__(self):
         return len(self.examples)
 
     def __getitem__(self, index):
         example = self.examples[index]
         if not self.use_xlmr:
-            feature = convert_one_msa_example_to_feature(example=example, label_list=self.label_list, tokenizer=self.tokenizer, 
-                                 max_seq_length=self.max_seq_length, path_img=self.path_img, vocabulary=self.vocabulary, 
-                                 cls_token_at_end=False,cls_token="[CLS]",cls_token_segment_id=1,sep_token="[SEP]",
-                                 pad_on_left=False,pad_token=0,pad_token_segment_id=0, sequence_a_segment_id=0,mask_padding_with_zero=True,
-                                 crop_size=self.crop_size, ti_crop_size=self.ti_crop_size)
+            feature = convert_one_msa_example_to_feature(example=example, label_list=self.label_list, tokenizer=self.tokenizer,
+                                                         max_seq_length=self.max_seq_length, path_img=self.path_img, vocabulary=self.vocabulary,
+                                                         cls_token_at_end=False, cls_token="[CLS]", cls_token_segment_id=1, sep_token="[SEP]",
+                                                         pad_on_left=False, pad_token=0, pad_token_segment_id=0, sequence_a_segment_id=0, mask_padding_with_zero=True,
+                                                         crop_size=self.crop_size, ti_crop_size=self.ti_crop_size)
         else:
-            feature = convert_one_msa_example_to_feature(example=example, label_list=self.label_list, tokenizer=self.tokenizer, 
-                                 max_seq_length=self.max_seq_length, path_img=self.path_img, vocabulary=self.vocabulary, 
-                                 cls_token_at_end=False,cls_token="<s>",cls_token_segment_id=0,sep_token="</s>",
-                                 pad_on_left=False, pad_token=1,pad_token_segment_id=0, sequence_a_segment_id=2,mask_padding_with_zero=True,
-                                 crop_size=self.crop_size, ti_crop_size=self.ti_crop_size)
+            feature = convert_one_msa_example_to_feature(example=example, label_list=self.label_list, tokenizer=self.tokenizer,
+                                                         max_seq_length=self.max_seq_length, path_img=self.path_img, vocabulary=self.vocabulary,
+                                                         cls_token_at_end=False, cls_token="<s>", cls_token_segment_id=0, sep_token="</s>",
+                                                         pad_on_left=False, pad_token=1, pad_token_segment_id=0, sequence_a_segment_id=2, mask_padding_with_zero=True,
+                                                         crop_size=self.crop_size, ti_crop_size=self.ti_crop_size)
         input_ids = torch.tensor(feature.input_ids, dtype=torch.long)
         input_mask = torch.tensor(feature.input_mask, dtype=torch.long)
         segment_ids = torch.tensor(feature.segment_ids, dtype=torch.long)
@@ -764,7 +767,7 @@ class ProgressBar(object):
         >>> pbar(step=step,info={'loss':20})
     '''
 
-    def __init__(self, n_total, width=30, desc='Training',num_epochs = None):
+    def __init__(self, n_total, width=30, desc='Training', num_epochs=None):
 
         self.width = width
         self.n_total = n_total
@@ -800,7 +803,8 @@ class ProgressBar(object):
     def _bar(self, now, current):
         recv_per = current / self.n_total
         bar = f'[{self.desc}] {current}/{self.n_total} ['
-        if recv_per >= 1: recv_per = 1
+        if recv_per >= 1:
+            recv_per = 1
         prog_width = int(self.width * recv_per)
         if prog_width > 0:
             bar += '=' * (prog_width - 1)
@@ -812,7 +816,7 @@ class ProgressBar(object):
         bar += ']'
         return bar
 
-    def epoch_start(self,current_epoch):
+    def epoch_start(self, current_epoch):
         sys.stdout.write("\n")
         if (current_epoch is not None) and (self.num_epochs is not None):
             sys.stdout.write(f"Epoch: {current_epoch}/{self.num_epochs}")
@@ -832,27 +836,28 @@ class ProgressBar(object):
         sys.stdout.flush()
 
 
-
 class Vocab_Builder:
-    def __init__ (self,freq_threshold):
+    def __init__(self, freq_threshold):
 
-        # freq_threshold is to allow only words with a frequency higher 
+        # freq_threshold is to allow only words with a frequency higher
         # than the threshold
 
-        self.itos = {0 : "<PAD>", 1 : "<SOS>", 2 : "<EOS>", 3 : "<UNK>"}  #index to string mapping
-        self.stoi = {"<PAD>" : 0, "<SOS>" : 1, "<EOS>" : 2, "<UNK>" : 3}  # string to index mapping
+        self.itos = {0: "<PAD>", 1: "<SOS>", 2: "<EOS>",
+                     3: "<UNK>"}  # index to string mapping
+        self.stoi = {"<PAD>": 0, "<SOS>": 1, "<EOS>": 2,
+                     "<UNK>": 3}  # string to index mapping
         self.freq_threshold = freq_threshold
 
     def __len__(self):
         return len(self.itos)
-    
+
     @staticmethod
     def tokenizer_eng(text):
-        #Removing spaces, lower, general vocab related work
+        # Removing spaces, lower, general vocab related work
         return [token.text.lower() for token in nlp.tokenizer(text)]
-    
+
     def build_vocabulary(self, sentence_list):
-        frequencies = {} # dict to lookup for words
+        frequencies = {}  # dict to lookup for words
         idx = 4
 
         # FIXME better ways to do this are there
@@ -862,24 +867,23 @@ class Vocab_Builder:
                 if word not in frequencies:
                     frequencies[word] = 1
                 else:
-                    frequencies[word] += 1 
+                    frequencies[word] += 1
                 if(frequencies[word] == self.freq_threshold):
-                    #Include it
+                    # Include it
                     self.stoi[word] = idx
                     self.itos[idx] = word
                     idx += 1
-    
+
     # Convert text to numericalized values
     def numericalize(self, text):
-        tokenized_text = self.tokenizer_eng(text) # Get the tokenized text
-        
+        tokenized_text = self.tokenizer_eng(text)  # Get the tokenized text
+
         # Stoi contains words which passed the freq threshold. Otherwise, get the <UNK> token
         return [self.stoi[token] if token in self.stoi else self.stoi["<UNK>"] for token in tokenized_text]
-    
+
     def denumericalize(self, token):
         text = [self.itos[token] if token in self.itos else self.itos[3]]
         return text
-
 
 
 def get_vocabulary(examples):
@@ -891,7 +895,7 @@ def get_vocabulary(examples):
     for example in examples:
         # captions = example.text_a.split(' ')
         captions_list.append(example.text_a)
-    
+
     vocabulary = Vocab_Builder(freq_threshold=2)
     vocabulary.build_vocabulary(captions_list)
     return vocabulary
@@ -909,13 +913,13 @@ def get_msa_vocabulary(examples, path_img):
         with open(text_name, 'r', encoding='unicode_escape') as f:
             text = f.readlines()
         captions_list.append(text[0])
-    
+
     vocabulary = Vocab_Builder(freq_threshold=2)
     vocabulary.build_vocabulary(captions_list)
     return vocabulary
 
 
-def get_entity_bios(seq,id2label):
+def get_entity_bios(seq, id2label):
     """Gets entities from sequence.
     note: BIOS
     Args:
@@ -959,7 +963,8 @@ def get_entity_bios(seq,id2label):
             chunk = [-1, -1, -1]
     return chunks
 
-def get_entity_bio(seq,id2label):
+
+def get_entity_bio(seq, id2label):
     """Gets entities from sequence.
     note: BIO
     Args:
@@ -999,22 +1004,23 @@ def get_entity_bio(seq,id2label):
             chunk = [-1, -1, -1]
     return chunks
 
-def get_entities(seq,id2label,markup='bios'):
+
+def get_entities(seq, id2label, markup='bios'):
     '''
     :param seq:
     :param id2label:
     :param markup:
     :return:
     '''
-    assert markup in ['bio','bios']
-    if markup =='bio':
-        return get_entity_bio(seq,id2label)
+    assert markup in ['bio', 'bios']
+    if markup == 'bio':
+        return get_entity_bio(seq, id2label)
     else:
-        return get_entity_bios(seq,id2label)
+        return get_entity_bios(seq, id2label)
 
 
 class SeqEntityScore(object):
-    def __init__(self, id2label,markup='bios'):
+    def __init__(self, id2label, markup='bios'):
         self.id2label = id2label
         self.markup = markup
         self.reset()
@@ -1027,7 +1033,8 @@ class SeqEntityScore(object):
     def compute(self, origin, found, right):
         recall = 0 if origin == 0 else (right / origin)
         precision = 0 if found == 0 else (right / found)
-        f1 = 0. if recall + precision == 0 else (2 * precision * recall) / (precision + recall)
+        f1 = 0. if recall + \
+            precision == 0 else (2 * precision * recall) / (precision + recall)
         return recall, precision, f1
 
     def result(self):
@@ -1040,7 +1047,8 @@ class SeqEntityScore(object):
             found = found_counter.get(type_, 0)
             right = right_counter.get(type_, 0)
             recall, precision, f1 = self.compute(origin, found, right)
-            class_info[type_] = {"acc": round(precision, 4), 'recall': round(recall, 4), 'f1': round(f1, 4)}
+            class_info[type_] = {"acc": round(precision, 4), 'recall': round(
+                recall, 4), 'f1': round(f1, 4)}
         origin = len(self.origins)
         found = len(self.founds)
         right = len(self.rights)
@@ -1060,13 +1068,16 @@ class SeqEntityScore(object):
             >>> pred_paths = [['O', 'O', 'B-MISC', 'I-MISC', 'I-MISC', 'I-MISC', 'O'], ['B-PER', 'I-PER', 'O']]
         '''
         for label_path, pre_path in zip(label_paths, pred_paths):
-            label_entities = get_entities(label_path, self.id2label,self.markup)
-            pre_entities = get_entities(pre_path, self.id2label,self.markup)
+            label_entities = get_entities(
+                label_path, self.id2label, self.markup)
+            pre_entities = get_entities(pre_path, self.id2label, self.markup)
             self.origins.extend(label_entities)
             self.founds.extend(pre_entities)
-            self.rights.extend([pre_entity for pre_entity in pre_entities if pre_entity in label_entities])
+            self.rights.extend(
+                [pre_entity for pre_entity in pre_entities if pre_entity in label_entities])
 
-def json_to_text(file_path,data):
+
+def json_to_text(file_path, data):
     '''
     将json list写入text文件中
     :param file_path:
