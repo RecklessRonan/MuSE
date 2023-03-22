@@ -1,4 +1,4 @@
-TASK_NAME="twitter15"
+TASK_NAME="twitter17"
 alpha=0.001
 beta=0.001
 theta=0.1
@@ -13,14 +13,14 @@ crf_learning_rate=5e-5
 bert_type='uncased'
 cross_dropout=0.2
 
-CUDA_VISIBLE_DEVICES=1 python -u main.py \
+CUDA_VISIBLE_DEVICES=0 python -u main_ct.py \
     --task ${TASK_NAME} \
     --per_gpu_train_batch_size 40 \
     --per_gpu_eval_batch_size 40 \
     --alpha ${alpha} \
     --beta ${beta} \
     --theta ${theta} \
-    --output_dir ../outputs/${TASK_NAME}_output/alpha${alpha}_beta${beta}_theta${theta}_sigma${sigma}_rs${replace_start}_re${replace_end}_cls${cls_init}_l${num_layers}_lr${learning_rate}_clr${crf_learning_rate}_${bert_type}_cd${cross_dropout}_last/\
+    --output_dir ../outputs_ct/${TASK_NAME}_output/alpha${alpha}_beta${beta}_theta${theta}_sigma${sigma}_rs${replace_start}_re${replace_end}_cls${cls_init}_l${num_layers}_lr${learning_rate}_clr${crf_learning_rate}_${bert_type}_cd${cross_dropout}_last/\
     --do_train \
     --do_eval \
     --num_train_epochs 10 \

@@ -5,6 +5,7 @@ import sys
 import time
 import json
 import copy
+import numpy as np
 
 from torchvision import transforms
 from PIL import Image
@@ -17,6 +18,12 @@ from pathlib import Path
 
 nlp = English()
 logger = logging.getLogger(__name__)
+
+
+def get_model_size(model):
+    model_parameters = filter(lambda p: p.requires_grad, model.parameters())
+    model_size = sum([np.prod(p.size()) for p in model_parameters])
+    return "{}M".format(round(model_size / 1e+6))
 
 
 def mnerreadfile(filename):

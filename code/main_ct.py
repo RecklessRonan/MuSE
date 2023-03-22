@@ -32,13 +32,13 @@ logger = logging.getLogger(__name__)
 
 
 class SubspaceExchangeMNER(nn.Module):
-    def __init__(self, image_encoder, text_decoder, text_encoder, image_decoder, cross_transformer, num_labels, cls_init,
+    def __init__(self, image_encoder, text_encoder, cross_transformer, num_labels, cls_init,
                  hidden_size, crf_dropout, text_dropout, image_dropout):
         super(SubspaceExchangeMNER, self).__init__()
         self.image_encoder = image_encoder
-        self.text_decoder = text_decoder
+        # self.text_decoder = text_decoder
         self.text_encoder = text_encoder
-        self.image_decoder = image_decoder
+        # self.image_decoder = image_decoder
         self.cross_transformer = cross_transformer
         # self.linear = nn.Linear(6272, hidden_size) # (encoded_image_size * encoded_image_size * encoder_dim / max_seq_length, 768)
         self.linear = nn.Linear(hidden_size, hidden_size)
@@ -48,6 +48,9 @@ class SubspaceExchangeMNER(nn.Module):
         self.crf_dropout = nn.Dropout(crf_dropout)
         self.text_dropout = nn.Dropout(text_dropout)
         self.image_dropout = nn.Dropout(image_dropout)
+
+        # self.gs_noise_t = torch.randn(5, 10, 20)
+        # self.gs_noise_i = torch.randn(5, 10, 20)
 
         self.cls_i = Parameter(torch.rand(1, hidden_size), requires_grad=True)
         self.cls_t = Parameter(torch.rand(1, hidden_size), requires_grad=True)
@@ -65,18 +68,23 @@ class SubspaceExchangeMNER(nn.Module):
             nn.init.xavier_normal_(self.cls_i)
             nn.init.xavier_normal_(self.cls_t)
 
-    def forward(self, text_input_ids, image_decode, image_raw, caption, length, labels=None, attention_mask=None, token_type_ids=None):
+    def forward(self, text_input_ids, image_raw, labels=None, attention_mask=None, token_type_ids=None):
         last_hidden_state, pooler_output = self.text_encoder(
             input_ids=text_input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
-        # print('pooler_output:', pooler_output)
+        # print('text_input_ids')
+        # print(text_input_ids)
+        # print('last_hidden_state:')
+        # print(last_hidden_state)
+        # print('pooler_output:')
+        # print(pooler_output)
+
         pooler_output = self.linear(pooler_output)
-        image_generate = self.image_decoder(x=image_decode, h=pooler_output)
+        # image_generate = self.image_decoder(x=image_decode, h=pooler_output)
         image_encode_embed = self.image_encoder(image_raw)
         image_encode_embed_view = image_encode_embed.contiguous().view(
             image_encode_embed.shape[0], -1, image_encode_embed.shape[-1])
         image_encode_embed = self.linear(image_encode_embed)
-        predictions, encoded_captions, decode_lengths, alphas, sort_ind = self.text_decoder(
-            image_encode_embed, caption, length)
+        # predictions, encoded_captions, decode_lengths, alphas, sort_ind = self.text_decoder(image_encode_embed, caption, length)
         last_hidden_state = self.text_dropout(last_hidden_state)
         image_encode_embed_view = self.image_dropout(image_encode_embed_view)
         cls_t = self.cls_t.repeat(last_hidden_state.shape[0], 1, 1)
@@ -94,17 +102,17 @@ class SubspaceExchangeMNER(nn.Module):
         if labels is not None:
             loss = self.crf(emissions=logits, tags=labels, mask=attention_mask)
             outputs = (-1*loss,)+outputs
-        return image_generate, predictions, encoded_captions, decode_lengths, alphas, sort_ind, outputs, logits
+        return outputs, logits
 
 
 class SubspaceExchangeMSA(nn.Module):
-    def __init__(self, image_encoder, text_decoder, text_encoder, image_decoder, cross_transformer, num_labels, cls_init,
+    def __init__(self, image_encoder, text_encoder, cross_transformer, num_labels, cls_init,
                  hidden_size, crf_dropout, text_dropout, image_dropout):
         super(SubspaceExchangeMSA, self).__init__()
         self.image_encoder = image_encoder
-        self.text_decoder = text_decoder
+        # self.text_decoder = text_decoder
         self.text_encoder = text_encoder
-        self.image_decoder = image_decoder
+        # self.image_decoder = image_decoder
         self.cross_transformer = cross_transformer
         # self.linear = nn.Linear(6272, hidden_size) # (encoded_image_size * encoded_image_size * encoder_dim / max_seq_length, 768)
         self.linear = nn.Linear(hidden_size, hidden_size)
@@ -129,7 +137,7 @@ class SubspaceExchangeMSA(nn.Module):
             nn.init.xavier_normal_(self.cls_i)
             nn.init.xavier_normal_(self.cls_t)
 
-    def forward(self, text_input_ids, image_decode, image_raw, caption, length, labels=None, attention_mask=None, token_type_ids=None):
+    def forward(self, text_input_ids, image_raw, attention_mask=None, token_type_ids=None):
         # print('text_input_ids', text_input_ids.shape)
         # print(text_input_ids)
         # print('image_decode', image_decode.shape)
@@ -143,13 +151,12 @@ class SubspaceExchangeMSA(nn.Module):
         last_hidden_state, pooler_output = self.text_encoder(
             input_ids=text_input_ids, attention_mask=attention_mask, token_type_ids=token_type_ids)
         pooler_output = self.linear(pooler_output)
-        image_generate = self.image_decoder(x=image_decode, h=pooler_output)
+        # image_generate = self.image_decoder(x=image_decode, h=pooler_output)
         image_encode_embed = self.image_encoder(image_raw)
         image_encode_embed_view = image_encode_embed.contiguous().view(
             image_encode_embed.shape[0], -1, image_encode_embed.shape[-1])
         image_encode_embed = self.linear(image_encode_embed)
-        predictions, encoded_captions, decode_lengths, alphas, sort_ind = self.text_decoder(
-            image_encode_embed, caption, length)
+        # predictions, encoded_captions, decode_lengths, alphas, sort_ind = self.text_decoder(image_encode_embed, caption, length)
         cls_t = self.cls_t.repeat(last_hidden_state.shape[0], 1, 1)
         cls_i = self.cls_i.repeat(image_encode_embed_view.shape[0], 1, 1)
         last_hidden_state = self.text_dropout(last_hidden_state)
@@ -164,37 +171,36 @@ class SubspaceExchangeMSA(nn.Module):
         sequence_output = torch.squeeze(sequence_output, 1)
         sequence_output = self.crf_dropout(sequence_output)
         logits = self.classifier(sequence_output)
-        return image_generate, predictions, encoded_captions, decode_lengths, alphas, sort_ind, logits
+        return logits
 
 
-def bulid_model(resnet_pretrained_dir, text_decoder_dim, text_decoder_embed_dim, text_vocab_size,
-                text_decoder_attention_dim, device, text_encoder, d_model, nhead, theta, num_labels, args):
+def bulid_model(resnet_pretrained_dir, text_encoder, d_model, nhead, theta, num_labels, args):
     image_encoder = ImageEncoder(resnet_pretrained_dir, encoded_image_size=8)
-    text_decoder = TextDecoder(text_decoder_attention_dim, text_decoder_embed_dim, text_decoder_dim, text_vocab_size,
-                               encoder_dim=args.hidden_size, dropout=0.5, device=device)
+    # text_decoder = TextDecoder(text_decoder_attention_dim, text_decoder_embed_dim, text_decoder_dim, text_vocab_size,
+    #                             encoder_dim=args.hidden_size, dropout=0.5, device=device)
     text_encoder = TextEncoder(text_encoder, use_xlmr=args.use_xlmr)
-    image_decoder = ImageDecoder(nr_resnet=5, nr_filters=80, nr_logistic_mix=10,
-                                 resnet_nonlinearity='concat_elu', input_channels=3)
+    # image_decoder = ImageDecoder(nr_resnet=5, nr_filters=80, nr_logistic_mix=10,
+    #                 resnet_nonlinearity='concat_elu', input_channels=3)
     cross_transformer_layer = CrossReplaceTransformerLayer(d_model, nhead, theta, skip_connection=args.skip_connection,
                                                            use_quantile=args.use_quantile, dropout=args.cross_dropout)
     cross_transformer = CrossReplaceTransformer(encoder_layer=cross_transformer_layer, num_layers=args.num_layers,
                                                 replace_start=args.replace_start, replace_end=args.replace_end, norm=None)
     if args.task not in ['mvsa-single', 'mvsa-multiple']:
-        model = SubspaceExchangeMNER(image_encoder=image_encoder, text_decoder=text_decoder,
-                                     text_encoder=text_encoder, image_decoder=image_decoder,
+        model = SubspaceExchangeMNER(image_encoder=image_encoder,  # text_decoder=text_decoder,
+                                     text_encoder=text_encoder,  # image_decoder=image_decoder,
                                      cross_transformer=cross_transformer, num_labels=num_labels, cls_init=args.cls_init,
                                      hidden_size=args.hidden_size, crf_dropout=args.crf_dropout,
                                      text_dropout=args.text_dropout, image_dropout=args.image_dropout)
     else:
-        model = SubspaceExchangeMSA(image_encoder=image_encoder, text_decoder=text_decoder,
-                                    text_encoder=text_encoder, image_decoder=image_decoder,
+        model = SubspaceExchangeMSA(image_encoder=image_encoder,  # text_decoder=text_decoder,
+                                    text_encoder=text_encoder,  # image_decoder=image_decoder,
                                     cross_transformer=cross_transformer, num_labels=num_labels, cls_init=args.cls_init,
                                     hidden_size=args.hidden_size, crf_dropout=args.crf_dropout,
                                     text_dropout=args.text_dropout, image_dropout=args.image_dropout)
     return model
 
 
-def evaluate(args, model, eval_dataset, LOSS_TI, cross_entropy, prefix="", flag=None):
+def evaluate(args, model, eval_dataset, prefix="", flag=None):
     metric = SeqEntityScore(args.id2label, markup=args.markup)
     eval_output_dir = args.output_dir
     if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
@@ -205,8 +211,8 @@ def evaluate(args, model, eval_dataset, LOSS_TI, cross_entropy, prefix="", flag=
         eval_dataset) if args.local_rank == -1 else DistributedSampler(eval_dataset)
     # if flag == 'test':
     #     args.eval_batch_size = args.test_batch_size
-    eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler,
-                                 batch_size=args.eval_batch_size, drop_last=args.drop_last)
+    eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.eval_batch_size,
+                                 num_workers=args.num_workers, drop_last=args.drop_last)
     # Eval!
     logger.info("***** Running evaluation %s *****", prefix)
     logger.info("  Num examples = %d", len(eval_dataset))
@@ -220,17 +226,15 @@ def evaluate(args, model, eval_dataset, LOSS_TI, cross_entropy, prefix="", flag=
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
         with torch.no_grad():
-            inputs = {"text_input_ids": batch[0], "image_decode": batch[5], "image_raw": batch[3],
-                      "caption": batch[6], "length": batch[7], "labels": batch[4], "attention_mask": batch[1], "token_type_ids": batch[2]}
-            image_generate, predictions, encoded_captions, decode_lengths, alphas, sort_ind, outputs, logits = model(
-                **inputs)
-            loss_ti = LOSS_TI(batch[5], image_generate)
-            loss_it = LOSS_IT(predictions, alphas,
-                              encoded_captions, decode_lengths, cross_entropy)
+            inputs = {"text_input_ids": batch[0], "image_raw": batch[3],
+                      "labels": batch[4], "attention_mask": batch[1], "token_type_ids": batch[2]}
+            outputs, logits = model(**inputs)
+            # loss_ti = LOSS_TI(batch[5], image_generate)
+            # loss_it = LOSS_IT(predictions, alphas, encoded_captions, decode_lengths, cross_entropy)
             loss_task = outputs[0]
             # print('loss_ti:', loss_ti, ', loss_it:', loss_it, ', loss_task:', loss_task)
-            tmp_eval_loss = calculate_multi_loss(
-                loss_it=loss_it, loss_ti=loss_ti, loss_task=loss_task, args=args)
+            # tmp_eval_loss = calculate_multi_loss(loss_it=loss_it, loss_ti=loss_ti, loss_task=loss_task, args=args)
+            tmp_eval_loss = loss_task
             pbar(step, {'loss': tmp_eval_loss.item()})
             tags = model.crf.decode(outputs[1], inputs['attention_mask'])
         if args.n_gpu > 1:
@@ -239,8 +243,9 @@ def evaluate(args, model, eval_dataset, LOSS_TI, cross_entropy, prefix="", flag=
         eval_loss += tmp_eval_loss.item()
         nb_eval_steps += 1
         out_label_ids = inputs['labels'].cpu().numpy().tolist()
-        input_lens = batch[8].cpu().numpy().tolist()
+        input_lens = batch[5].cpu().numpy().tolist()
         tags = tags.squeeze(0).cpu().numpy().tolist()
+        print('batch:', batch)
         for i, label in enumerate(out_label_ids):
             temp_1 = []
             temp_2 = []
@@ -269,10 +274,11 @@ def evaluate(args, model, eval_dataset, LOSS_TI, cross_entropy, prefix="", flag=
         info = "-".join([f' {key}: {value:.4f} ' for key,
                         value in entity_info[key].items()])
         logger.info(info)
+
     return results, eval_loss
 
 
-def evaluate_msa(args, model, eval_dataset, LOSS_TI, cross_entropy, prefix="", flag=None):
+def evaluate_msa(args, model, eval_dataset, cross_entropy, prefix="", flag=None):
     eval_output_dir = args.output_dir
     if not os.path.exists(eval_output_dir) and args.local_rank in [-1, 0]:
         os.makedirs(eval_output_dir)
@@ -282,8 +288,8 @@ def evaluate_msa(args, model, eval_dataset, LOSS_TI, cross_entropy, prefix="", f
         eval_dataset) if args.local_rank == -1 else DistributedSampler(eval_dataset)
     # if flag == 'test':
     #     args.eval_batch_size = args.test_batch_size
-    eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler,
-                                 batch_size=args.eval_batch_size, drop_last=args.drop_last)
+    eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.eval_batch_size, drop_last=args.drop_last,
+                                 num_workers=args.num_workers)
     # Eval!
     logger.info("***** Running evaluation %s *****", prefix)
     logger.info("  Num examples = %d", len(eval_dataset))
@@ -300,18 +306,17 @@ def evaluate_msa(args, model, eval_dataset, LOSS_TI, cross_entropy, prefix="", f
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
         with torch.no_grad():
-            inputs = {"text_input_ids": batch[0], "image_decode": batch[5], "image_raw": batch[3],
-                      "caption": batch[6], "length": batch[7], "labels": batch[4], "attention_mask": batch[1], "token_type_ids": batch[2]}
-            image_generate, predictions, encoded_captions, decode_lengths, alphas, sort_ind, logits = model(
-                **inputs)
-            loss_ti = LOSS_TI(batch[5], image_generate)
-            loss_it = LOSS_IT(predictions, alphas,
-                              encoded_captions, decode_lengths, cross_entropy)
-            loss_task = cross_entropy(logits, batch[4]) * args.max_seq_length
+            # text_input_ids, image_raw, labels=None, attention_mask=None, token_type_ids=None
+            inputs = {"text_input_ids": batch[0], "image_raw": batch[3],
+                      "labels": batch[4], "attention_mask": batch[1], "token_type_ids": batch[2]}
+            logits = model(**inputs)
+            # loss_ti = LOSS_TI(batch[5], image_generate)
+            # loss_it = LOSS_IT(predictions, alphas, encoded_captions, decode_lengths, cross_entropy)
+            loss_task = cross_entropy(logits, batch[4])
             # print('loss_ti:', loss_ti, ', loss_it:', loss_it, ', loss_task:', loss_task)
-            tmp_eval_loss = calculate_multi_loss(
-                loss_it=loss_it, loss_ti=loss_ti, loss_task=loss_task, args=args)
-            pbar(step, {'loss': tmp_eval_loss.item()})
+            # tmp_eval_loss = calculate_multi_loss(loss_it=loss_it, loss_ti=loss_ti, loss_task=loss_task, args=args)
+            tmp_eval_loss = loss_task
+            # pbar(step, {'loss': tmp_eval_loss.item()})
             preds = torch.argmax(logits, dim=-1)
             all_labels.extend(batch[4].tolist())
             all_preds.extend(preds.tolist())
@@ -333,23 +338,23 @@ def evaluate_msa(args, model, eval_dataset, LOSS_TI, cross_entropy, prefix="", f
     return results, eval_loss
 
 
-def predict(args, model, test_dataset, prefix=""):
+def predict(args, model, tokenizer, test_dataset, prefix=""):
     pred_output_dir = args.output_dir
     if not os.path.exists(pred_output_dir) and args.local_rank in [-1, 0]:
         os.makedirs(pred_output_dir)
     # Note that DistributedSampler samples randomly
     test_sampler = SequentialSampler(
         test_dataset) if args.local_rank == -1 else DistributedSampler(test_dataset)
-    test_dataloader = DataLoader(test_dataset, sampler=test_sampler,
-                                 batch_size=args.test_batch_size, drop_last=args.drop_last)
+    test_dataloader = DataLoader(test_dataset, sampler=test_sampler, batch_size=args.test_batch_size,
+                                 num_workers=args.num_workers, drop_last=args.drop_last)
     # Eval!
     logger.info("***** Running prediction %s *****", prefix)
     logger.info("  Num examples = %d", len(test_dataset))
     logger.info("  Batch size = %d", args.test_batch_size)
     results = []
-    output_predict_file = os.path.join(
-        pred_output_dir, prefix, "test_prediction.json")
-    pbar = ProgressBar(n_total=len(test_dataloader), desc="Predicting")
+    pred_name = prefix + '_test_prediction.json'
+    output_predict_file = os.path.join(pred_output_dir, pred_name)
+    # pbar = ProgressBar(n_total=len(test_dataloader), desc="Predicting")
 
     if isinstance(model, nn.DataParallel):
         model = model.module
@@ -357,24 +362,34 @@ def predict(args, model, test_dataset, prefix=""):
         model.eval()
         batch = tuple(t.to(args.device) for t in batch)
         with torch.no_grad():
-            inputs = {"text_input_ids": batch[0], "image_decode": batch[5], "image_raw": batch[3],
-                      "caption": batch[6], "length": batch[7], "labels": batch[4], "attention_mask": batch[1], "token_type_ids": batch[2]}
-            image_generate, predictions, encoded_captions, decode_lengths, alphas, sort_ind, outputs, logits = model(
-                **inputs)
+            # inputs = {"text_input_ids": batch[0], "image_raw": batch[3], "labels": batch[4], "attention_mask": batch[1], "token_type_ids": batch[2]}
+            inputs = {"text_input_ids": batch[0], "image_raw": batch[3],
+                      "labels": batch[4], "attention_mask": batch[1], "token_type_ids": batch[2]}
+            outputs, logits = model(**inputs)
             # print('logits', logits)
             tags = model.crf.decode(outputs[1], inputs['attention_mask'])
             tags = tags.squeeze(0).cpu().numpy().tolist()
         preds = tags[0][1:-1]  # [CLS]XXXX[SEP]
+
+        # print('batch[0]', batch[0][0])
+        raw_inputs = tokenizer.decode(
+            batch[0][0], skip_special_tokens=True, clean_up_tokenization_spaces=True)
+        raw_inputs = raw_inputs.replace(' ', '')
+        # print('raw_inputs', raw_inputs)
+        # labels = batch[4][0].cpu().numpy().tolist()
+        # print('labels', labels)
         # print('preds', preds)
         # print('args.id2label', args.id2label)
         # print('args.markup', args.markup)
         label_entities = get_entities(preds, args.id2label, args.markup)
         json_d = {}
+        json_d['raw_inputs'] = raw_inputs
         json_d['id'] = step
         json_d['tag_seq'] = " ".join([args.id2label[x] for x in preds])
+
         json_d['entities'] = label_entities
         results.append(json_d)
-        pbar(step)
+        # pbar(step)
     logger.info("\n")
     with open(output_predict_file, "w") as writer:
         for record in results:
@@ -427,7 +442,6 @@ def main():
                         default='uncased',
                         type=str,
                         help="The type for Bert, such as uncased, cased, chinese, xlmr-base.")
-    # https://download.pytorch.org/models/resnet152-b121ed2d.pth
     parser.add_argument("--resnet_pretrained_dir",
                         default='../models/resnet152-b121ed2d.pth',
                         type=str,
@@ -615,10 +629,8 @@ def main():
     bert_config = AutoConfig.from_pretrained(bert_dir)
     bert_tokenizer = AutoTokenizer.from_pretrained(bert_dir)
     bert_model = AutoModel.from_pretrained(bert_dir, config=bert_config)
-    model = bulid_model(resnet_pretrained_dir=args.resnet_pretrained_dir, text_decoder_dim=512, text_decoder_embed_dim=512, text_vocab_size=text_vocab_size,
-                        text_decoder_attention_dim=512, device=args.device, text_encoder=bert_model,
+    model = bulid_model(resnet_pretrained_dir=args.resnet_pretrained_dir, text_encoder=bert_model,
                         d_model=768, nhead=12, theta=args.theta, num_labels=num_labels, args=args)
-
     logger.info("Finish loading model [%s] parameters", get_model_size(
         model))
 
@@ -639,17 +651,7 @@ def main():
         model_dict.update(image_decoder_dict)
     model.load_state_dict(model_dict)
     model.to(args.device)
-    if args.task not in ['mvsa-single', 'mvsa-multiple']:
-        train_dataset = MNERDataset(examples=train_examples, label_list=label_list, max_seq_length=args.max_seq_length,
-                                    tokenizer=bert_tokenizer, crop_size=args.crop_size, path_img=args.image_dir, ti_crop_size=args.ti_crop_size,
-                                    vocabulary=vocabulary, use_xlmr=args.use_xlmr)
-        dev_dataset = MNERDataset(examples=dev_examples, label_list=label_list, max_seq_length=args.max_seq_length,
-                                  tokenizer=bert_tokenizer, crop_size=args.crop_size, path_img=args.image_dir, ti_crop_size=args.ti_crop_size,
-                                  vocabulary=vocabulary, use_xlmr=args.use_xlmr)
-        test_dataset = MNERDataset(examples=test_examples, label_list=label_list, max_seq_length=args.max_seq_length,
-                                   tokenizer=bert_tokenizer, crop_size=args.crop_size, path_img=args.image_dir, ti_crop_size=args.ti_crop_size,
-                                   vocabulary=vocabulary, use_xlmr=args.use_xlmr)
-    else:
+    if args.task in ['mvsa-single', 'mvsa-multiple']:
         train_dataset = MSADataset(examples=train_examples, label_list=label_list, max_seq_length=args.max_seq_length,
                                    tokenizer=bert_tokenizer, crop_size=args.crop_size, path_img=args.image_dir, ti_crop_size=args.ti_crop_size,
                                    vocabulary=vocabulary, use_xlmr=args.use_xlmr)
@@ -659,12 +661,23 @@ def main():
         test_dataset = MSADataset(examples=test_examples, label_list=label_list, max_seq_length=args.max_seq_length,
                                   tokenizer=bert_tokenizer, crop_size=args.crop_size, path_img=args.image_dir, ti_crop_size=args.ti_crop_size,
                                   vocabulary=vocabulary, use_xlmr=args.use_xlmr)
+    else:
+        train_dataset = MNERDataset(examples=train_examples, label_list=label_list, max_seq_length=args.max_seq_length,
+                                    tokenizer=bert_tokenizer, crop_size=args.crop_size, path_img=args.image_dir, ti_crop_size=args.ti_crop_size,
+                                    vocabulary=vocabulary, use_xlmr=args.use_xlmr)
+        dev_dataset = MNERDataset(examples=dev_examples, label_list=label_list, max_seq_length=args.max_seq_length,
+                                  tokenizer=bert_tokenizer, crop_size=args.crop_size, path_img=args.image_dir, ti_crop_size=args.ti_crop_size,
+                                  vocabulary=vocabulary, use_xlmr=args.use_xlmr)
+        test_dataset = MNERDataset(examples=test_examples, label_list=label_list, max_seq_length=args.max_seq_length,
+                                   tokenizer=bert_tokenizer, crop_size=args.crop_size, path_img=args.image_dir, ti_crop_size=args.ti_crop_size,
+                                   vocabulary=vocabulary, use_xlmr=args.use_xlmr)
     train_sampler = RandomSampler(
         train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size,
                                   num_workers=args.num_workers, drop_last=args.drop_last)
 
-    def LOSS_TI(real, fake): return discretized_mix_logistic_loss(real, fake)
+    def LOSS_TI(real, fake):
+        return discretized_mix_logistic_loss(real, fake)
     cross_entropy = nn.CrossEntropyLoss()
 
     logger.info("Args: {}".format(args))
@@ -729,7 +742,7 @@ def main():
         loss_step = 0
         model.zero_grad()
 
-        best_eval_results = 0
+        best_eval_results = -1
         best_eval_loss = float('inf')
 
         pbar = ProgressBar(n_total=len(train_dataloader),
@@ -741,42 +754,37 @@ def main():
                 # Skip past any already trained steps if resuming training
                 model.train()
                 batch = tuple(t.to(args.device) for t in batch)
-                inputs = {"text_input_ids": batch[0], "image_decode": batch[5], "image_raw": batch[3],
-                          "caption": batch[6], "length": batch[7], "labels": batch[4], "attention_mask": batch[1], "token_type_ids": batch[2]}
-                # print('inputs:', inputs)
+                inputs = {"text_input_ids": batch[0], "image_raw": batch[3],
+                          "labels": batch[4], "attention_mask": batch[1], "token_type_ids": batch[2]}
                 if args.task not in ['mvsa-single', 'mvsa-multiple']:
-                    image_generate, predictions, encoded_captions, decode_lengths, alphas, sort_ind, outputs, logits = model(
-                        **inputs)
+                    outputs, logits = model(**inputs)
                     loss_task = outputs[0]
                 else:
                     image_generate, predictions, encoded_captions, decode_lengths, alphas, sort_ind, logits = model(
                         **inputs)
                     # print('logits', logits.shape)
                     # print('batch[4]', batch[4].shape)
-                    loss_task = cross_entropy(
-                        logits, batch[4]) * args.max_seq_length
+                    loss_task = cross_entropy(logits, batch[4])
                     # preds = torch.argmax(logits, dim=-1)
                     # print('preds', preds.shape)
                     # print(preds.tolist())
                     # print('labels', batch[4].shape)
                     # print(batch[4].tolist())
 
-                loss_ti = LOSS_TI(batch[5], image_generate)
+                # loss_ti = LOSS_TI(batch[5], image_generate)
                 # print('decode_lengths', decode_lengths)
-                loss_it = LOSS_IT(
-                    predictions, alphas, encoded_captions, decode_lengths, cross_entropy)
+                # loss_it = LOSS_IT(predictions, alphas, encoded_captions, decode_lengths, cross_entropy)
                 # print('loss_ti:', loss_ti, ', loss_it:', loss_it, ', loss_task:', loss_task)
-                loss_final = calculate_multi_loss(
-                    loss_it=loss_it, loss_ti=loss_ti, loss_task=loss_task, args=args)
-                writer.add_scalar('loss_ti', loss_ti, loss_step)
-                writer.add_scalar('loss_it', loss_it, loss_step)
-                writer.add_scalar('loss_task', loss_task, loss_step)
-                writer.add_scalar('loss_final', loss_final, loss_step)
+                # loss_final = calculate_multi_loss(loss_it=loss_it, loss_ti=loss_ti, loss_task=loss_task, args=args)
+                # writer.add_scalar('loss_ti', loss_ti, loss_step)
+                # writer.add_scalar('loss_it', loss_it, loss_step)
+                # writer.add_scalar('loss_task', loss_task, loss_step)
+                # writer.add_scalar('loss_final', loss_final, loss_step)
                 loss_step += 1
 
-                loss_final.backward()
-                pbar(step, {'loss': loss_final.item()})
-                tr_loss += loss_final.item()
+                loss_task.backward()
+                pbar(step, {'loss': loss_task.item()})
+                tr_loss += loss_task.item()
                 if (step + 1) % args.gradient_accumulation_steps == 0:
                     torch.nn.utils.clip_grad_norm_(
                         model.parameters(), args.max_grad_norm)
@@ -791,11 +799,11 @@ def main():
                             # Only evaluate when single GPU otherwise metrics may not average well
                             if args.task not in ['mvsa-single', 'mvsa-multiple']:
                                 results, eval_loss = evaluate(
-                                    args, model, dev_dataset, LOSS_TI, cross_entropy)
+                                    args, model, dev_dataset)
                                 eval_results = results['f1']
                             else:
                                 results, eval_loss = evaluate_msa(
-                                    args, model, dev_dataset, LOSS_TI, cross_entropy)
+                                    args, model, dev_dataset)
                                 eval_results = results['accuracy']
                     if args.local_rank in [-1, 0] and args.save_steps > 0 and global_step % args.save_steps == 0:
                         # Save model checkpoint
@@ -887,9 +895,7 @@ def main():
         # for checkpoint in checkpoints:
         # global_step = checkpoint.split("-")[-1] if len(checkpoints) > 1 else ""
         # prefix = checkpoint.split('/')[-1] if checkpoint.find('checkpoint') != -1 else ""
-        model = bulid_model(resnet_pretrained_dir=args.resnet_pretrained_dir, text_decoder_dim=512,
-                            text_decoder_embed_dim=512, text_vocab_size=text_vocab_size,
-                            text_decoder_attention_dim=512, device=args.device, text_encoder=bert_model,
+        model = bulid_model(resnet_pretrained_dir=args.resnet_pretrained_dir, text_encoder=bert_model,
                             d_model=768, nhead=12, theta=args.theta, num_labels=num_labels, args=args)
         logger.info("Test on best eval model")
         model.load_state_dict(torch.load(
@@ -897,11 +903,11 @@ def main():
         prefix = 'test best'
         model.to(args.device)
         if args.task not in ['mvsa-single', 'mvsa-multiple']:
-            result, _ = evaluate(
-                args, model, test_dataset, LOSS_TI, cross_entropy, prefix=prefix, flag='test')
+            result, _ = evaluate(args, model, test_dataset,
+                                 prefix=prefix, flag='test')
         else:
             result, _ = evaluate_msa(
-                args, model, test_dataset, LOSS_TI, cross_entropy, prefix=prefix, flag='test')
+                args, model, test_dataset, cross_entropy, prefix=prefix, flag='test')
         # if global_step:
         #     result = {"{}_{}".format(global_step, k): v for k, v in result.items()}
         # results.update(result)
@@ -917,11 +923,11 @@ def main():
         prefix = 'test best_loss'
         model.to(args.device)
         if args.task not in ['mvsa-single', 'mvsa-multiple']:
-            result, _ = evaluate(
-                args, model, test_dataset, LOSS_TI, cross_entropy, prefix=prefix, flag='test')
+            result, _ = evaluate(args, model, test_dataset,
+                                 prefix=prefix, flag='test')
         else:
             result, _ = evaluate_msa(
-                args, model, test_dataset, LOSS_TI, cross_entropy, prefix=prefix, flag='test')
+                args, model, test_dataset, cross_entropy, prefix=prefix, flag='test')
         # if global_step:
         #     result = {"{}_{}".format(global_step, k): v for k, v in result.items()}
         # results.update(result)
@@ -937,11 +943,11 @@ def main():
         # model.to(args.device)
         prefix = 'test last'
         if args.task not in ['mvsa-single', 'mvsa-multiple']:
-            result, _ = evaluate(
-                args, model, test_dataset, LOSS_TI, cross_entropy, prefix=prefix, flag='test')
+            result, _ = evaluate(args, model, test_dataset,
+                                 prefix=prefix, flag='test')
         else:
             result, _ = evaluate_msa(
-                args, model, test_dataset, LOSS_TI, cross_entropy, prefix=prefix, flag='test')
+                args, model, test_dataset, cross_entropy, prefix=prefix, flag='test')
         # if global_step:
         #     result = {"{}_{}".format(global_step, k): v for k, v in result.items()}
         # results.update(result)
@@ -952,26 +958,41 @@ def main():
                 writer.write("{} = {}\n".format(key, str(result[key])))
 
     if args.do_predict and args.local_rank in [-1, 0]:
-        checkpoints = [args.output_dir]
-        if args.predict_checkpoints > 0:
-            checkpoints = list(
-                os.path.dirname(c) for c in sorted(glob.glob(args.output_dir + '/**/' + WEIGHTS_NAME, recursive=True)))
-            logging.getLogger("transformers.modeling_utils").setLevel(
-                logging.WARN)  # Reduce logging
-            checkpoints = [x for x in checkpoints if x.split(
-                '-')[-1] == str(args.predict_checkpoints)]
-        logger.info("Predict the following checkpoints: %s", checkpoints)
-        for checkpoint in checkpoints:
-            prefix = checkpoint.split(
-                '/')[-1] if checkpoint.find('checkpoint') != -1 else ""
-            model = bulid_model(resnet_pretrained_dir=args.resnet_pretrained_dir, text_decoder_dim=512,
-                                text_decoder_embed_dim=512, text_vocab_size=text_vocab_size,
-                                text_decoder_attention_dim=512, device=args.device, text_encoder=bert_model,
-                                d_model=768, nhead=12, theta=args.theta, num_labels=num_labels, args=args)
-            model.load_state_dict(torch.load(
-                os.path.join(checkpoint, "model.bin")))
-            model.to(args.device)
-            predict(args, model, test_dataset, prefix=prefix)
+        checkpoint = args.output_dir
+        model = bulid_model(resnet_pretrained_dir=args.resnet_pretrained_dir, text_encoder=bert_model,
+                            d_model=768, nhead=12, theta=args.theta, num_labels=num_labels, args=args)
+        model.to(args.device)
+        logger.info("Predict on best loss model")
+        model.load_state_dict(torch.load(
+            os.path.join(checkpoint, "model_best_loss.bin")))
+        prefix = 'loss'
+        predict(args, model, bert_tokenizer, test_dataset, prefix=prefix)
+
+        logger.info("Predict on best result model")
+        model.load_state_dict(torch.load(
+            os.path.join(checkpoint, "model_best.bin")))
+        prefix = 'best'
+        predict(args, model, bert_tokenizer, test_dataset, prefix=prefix)
+
+        logger.info("Predict on last model")
+        model.load_state_dict(torch.load(
+            os.path.join(checkpoint, "model_last.bin")))
+        prefix = 'last'
+        predict(args, model, bert_tokenizer, test_dataset, prefix=prefix)
+        # checkpoints = [args.output_dir]
+        # if args.predict_checkpoints > 0:
+        #     checkpoints = list(
+        #         os.path.dirname(c) for c in sorted(glob.glob(args.output_dir + '/**/' + WEIGHTS_NAME, recursive=True)))
+        #     logging.getLogger("transformers.modeling_utils").setLevel(logging.WARN)  # Reduce logging
+        #     checkpoints = [x for x in checkpoints if x.split('-')[-1] == str(args.predict_checkpoints)]
+        # logger.info("Predict the following checkpoints: %s", checkpoints)
+        # for checkpoint in checkpoints:
+        #     prefix = checkpoint.split('/')[-1] if checkpoint.find('checkpoint') != -1 else ""
+        #     model = bulid_model(resnet_pretrained_dir=args.resnet_pretrained_dir, text_encoder=bert_model,
+        #          d_model=768, nhead=12, theta=args.theta, num_labels=num_labels, args=args)
+        #     model.load_state_dict(torch.load(os.path.join(checkpoint, "model.bin")))
+        #     model.to(args.device)
+        #     predict(args, model, test_dataset, prefix=prefix)
 
 
 if __name__ == "__main__":
