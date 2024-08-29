@@ -1,3 +1,11 @@
+# Notice ！！！
+
+Thank you very much for your interest in this work. 
+
+This project was completed during my internship at Meituan over two years ago and is no longer being maintained. 
+
+I apologize for any inconvenience.
+
 # MuSE
 
 We provide our collected dataset (MT-Product) in anonymous [Google Drive](https://drive.google.com/drive/u/1/folders/1emWPyba8kF29EgS67ESO81kxIOCQN6Dv). 
